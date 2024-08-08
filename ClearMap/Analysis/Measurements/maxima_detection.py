@@ -201,3 +201,28 @@ def find_center_of_maxima(source, maxima=None, label=None, verbose=False):
         timer.print_elapsed_time(f'Center of Maxima: {centers.shape[0]} maxima detected')
 
     return centers
+
+def label_representatives(A:np.ndarray,eliminate_zero_label=True)->tuple[np.ndarray,...]:
+    """Return the multi-index of one element per non empty labeled region.
+        The 0 labeled region is ignored by default and can be included optionally.
+
+    Parameters
+    ----------
+    A : np.ndarray
+        The labeled regions
+    eliminate_zero_label : bool, optional
+        If the representative for the 0 label is to be eliminated, 
+        by default True
+
+    Returns
+    -------
+    tuple[np.ndarray,...]
+        The multi indices of one representative point per region, the ith 
+        coordinate of the kth point is the kth entry of the ith array in 
+        the tuple.
+    """
+    labels,indices = np.unique(A,return_index=True)
+    if eliminate_zero_label:
+        indices = indices[np.where(labels)]
+    multi_indices = np.unravel_index(indices,A.shape)
+    return multi_indices
