@@ -402,8 +402,8 @@ def detect_cells_block(source, parameter=default_cell_detection_parameter, n_thr
         maxima = wrap_step('maxima_detection', dog, md.find_maxima, extra_kwargs={'verbose': parameter.get('verbose')},
                            remove_previous_result=False, **default_step_params)
         # center of maxima
-        if parameter_maxima['h_max']:  # FIXME: check if source or dog
-            centers = md.find_center_of_maxima(source, maxima=maxima, verbose=parameter.get('verbose'))
+        if parameter_maxima['h_max']:
+            centers = md.find_center_of_maxima(source.array, maxima=maxima, verbose=parameter.get('verbose'))
         else:
             # We treat the eventuality of connected components of size>1 in the mask (maxima>0);
             # the choice of the structure matrix for connectivity could need discussion.
