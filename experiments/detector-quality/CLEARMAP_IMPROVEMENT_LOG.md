@@ -62,6 +62,92 @@ reflect renumbered labels, not necessarily changed boundaries.
 
 ## Integration plan and next checkpoint
 
+### Component segmentation validation — 2026-10-26
+
+Scripts: validate_component_segmentation.py and check_component_pipeline.py.
+Stage evidence: test-data/component-validation-20261026T112815693824Z/.
+Full-detector evidence: test-data/component-pipeline-20261026T112902770129Z/.
+The 6% shallow-dip merge was DISABLED. Direct categorical markers and connected
+equal-plateau collapse were shared between both comparison arms; thresholds and
+seed coordinates were fixed. Component segmentation used face connectivity,
+signed floating-point negative intensities, masked local markers, bounding boxes,
+and skipped unseeded components.
+
+27 synthetic cases passed: twelve seeded random tied-intensity cases each in
+2D and 3D, empty foreground, unseeded foreground, and diagonal-only contacts.
+Checks covered seed preservation, allowed label IDs, no background leakage,
+no cross-component labels, complete coverage of seeded components, repeatability,
+padding invariance, C/Fortran memory layout, and no unrelated changes after
+deleting a seed. These are computational properties, not biological accuracy.
+
+Eight 256x256x1 demo crops were tested. Both original image-25 crops retained
+identical arrays (24/18 accepted). In the six image-26 crops, four changed some
+boundaries (39 pixels total across them). Three seeds crossed the 5-pixel cutoff:
+- x800_y200 (92,166): 4→18 pixels, becomes accepted (crop total 27→28).
+- x1400_y200 (246,46): 6→1 pixels, excluded (58→57).
+- x1400_y450 (194,5): 5→4 pixels, excluded (36→35).
+Other image-26 crop totals remain 0, 1 and 41. All before/after sizes are saved
+in CSV files; boundary-review.png shows the three acceptance-change sites.
+Visual inspection shows competing seeds still partition these objects; component
+isolation stabilizes independence but does not resolve their biological counts.
+
+Full ClearMap detector checks on all three crops with changed acceptance decisions
+matched every stage-level coordinate and size exactly. Two full runs per crop
+were identical, including source-intensity measurements. This used one worker,
+one native thread, in-process experimental function replacement, and a single
+Z block; it is not multi-block or full-brain pipeline validation.
+
+Median segmentation time over three runs on seeded crops was about 1.3–10.6 ms
+per component versus 0.7–1.2 ms globally (roughly 2–14x slower). Absolute times
+are tiny on these crops; do not extrapolate to whole brains. Peak memory and
+real 3D throughput have not been measured.
+
+Decision: component isolation is a supported experimental baseline for further QC,
+not yet a production adoption. Next review the three altered decisions, then
+validate representative real 3D volumes and block boundaries before reconsidering
+automatic merging. No production source, installed package or thresholds changed.
+
+### Nonlocal watershed investigation — 2026-10-26
+
+Script: trace_watershed_locality.py. Completed evidence:
+test-data/watershed-locality-20261026T081717859148Z/report.json and
+synthetic-locality.png. Installed scikit-image version: 0.20.0.
+
+Confirmed that the unexpected changes occur in foreground components disconnected
+from every removed seed. Their images, masks and surviving marker IDs are identical.
+The original baseline sizes reproduce exactly. In x1400_y200, removed seeds are
+in components 116/118, but components 89/106/131 change. In x1400_y450 the removed
+seed is in component 83, while component 89 changes. Thus foreground connections
+between these regions do not explain the effect.
+
+A minimal flat-image reproducer has two disconnected islands; removing the only
+seed from the first island changes seven pixels between two fixed seeds in the
+second island. This reproduces the problem without demo data or the merge rule.
+The installed Python wrapper uses one global watershed queue; its documentation
+describes intensity priority and entry-time tie handling. Giving every pixel a
+unique sub-intensity priority eliminates unrelated changes in both demo crops.
+Together these observations strongly implicate global queue tie handling. The
+compiled queue's exact internal ordering was not instrumented in this test.
+
+Signed floating-point negation gives exactly the same before/after results as
+the existing unsigned negation on these masked demo inputs. Original marker-ID
+preservation was already tested separately and also retained the effect.
+
+Experimental workaround: label the threshold foreground with face connectivity,
+then watershed each component separately in its bounding box using the same
+marker IDs. This produced ZERO unrelated changed pixels in both crops and
+preserved the synthetic second island. Component-wise sizes stayed 10→10, 1→1,
+3→3, and 4→4 for the four previously affected seed coordinates. Some differ from
+the old global baseline (10,6,3,5): stability does not establish more accurate
+biological boundaries or preserve every previous acceptance decision.
+
+Recommendation: validate component-isolated segmentation as a separate correction
+before reassessing the 6% merge rule. Do not use intensity perturbation as a
+production fix; it was a diagnostic and imposes arbitrary pixel ordering.
+Remaining work includes regression checks, representative 3D/connectivity cases,
+runtime/memory measurement, and full-pipeline validation. Neither component
+isolation nor the merge rule has been adopted in the production detector.
+
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 
 Script challenge_shallow_dip.py; results and all six merge images:
