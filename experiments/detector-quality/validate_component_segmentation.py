@@ -5,7 +5,7 @@ from skimage.segmentation import watershed
 b=e.base; np=b.np
 OUT=b.ROOT/'test-data'/('component-validation-'+b.run_stamp)
 
-def segment(image,markers,mask):
+def segment_reference(image,markers,mask):
     labels,_=b.ndi.label(mask)
     result=np.zeros(markers.shape,dtype=np.int32)
     for lab,sl in enumerate(b.ndi.find_objects(labels),1):
@@ -16,8 +16,25 @@ def segment(image,markers,mask):
         result[sl]+=watershed(image[sl],local_markers,mask=local)
     return result
 
+def segment(image,markers,mask):
+    """Equivalent shortcut: flood single-marker components without watershed."""
+    labels,_=b.ndi.label(mask)
+    result=np.zeros(markers.shape,dtype=np.int32)
+    for lab,sl in enumerate(b.ndi.find_objects(labels),1):
+        if sl is None: continue
+        local=labels[sl]==lab
+        local_markers=np.where(local,markers[sl],0)
+        ids=np.unique(local_markers[local_markers>0])
+        if not len(ids): continue
+        if len(ids)==1:
+            result[sl][local]=ids[0]
+        else:
+            result[sl]+=watershed(image[sl],local_markers,mask=local)
+    return result
+
 def invariants(image,m,mask):
     a=segment(image,m,mask)
+    assert np.array_equal(a,segment_reference(image,m,mask))
     assert not np.any(a[~mask])
     assert np.array_equal(a[m>0],m[m>0])
     assert set(np.unique(a))<=set(np.unique(m))

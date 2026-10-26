@@ -62,6 +62,119 @@ reflect renumbered labels, not necessarily changed boundaries.
 
 ## Integration plan and next checkpoint
 
+### Fixed ownership and context recovery — 2026-10-26
+
+Experiment: test_block_ownership.py. Evidence:
+test-data/block-ownership-20261026T114757741428Z/report.json.
+
+Keep the original ClearMap valid core as the exclusive owner of each seed,
+include ALL seeds in the segmentation context, and emit only owned results.
+Before trusting a result, check whether its entire threshold-connected component
+touches an artificial context edge. Expand along touched faces in bounded steps
+(max(overlap,8) voxels in this diagnostic), preserving the original ownership.
+Exhausted expansion returns needs_context with size=None, not a truncated size.
+Components reaching the acquisition edge receive physical_edge_qc. Production
+overlap and threshold settings remain unchanged.
+
+All ten prior synthetic boundary cases matched single-volume voxel membership
+per global seed identity, not merely total size. Ownership checks found no
+missing or duplicate seeds. Compact cases required no expansion. With overlap 5,
+the extended cell recovered 233 pixels and the competing pair recovered 131/110
+after one expansion per owner. With overlap 32, the extended cell recovered 903
+pixels after one expansion; the pair matched 131/110 without expansion.
+
+Two failure-handling controls passed: zero expansion budget reports needs_context
+with no size; a connected column reaching acquisition edges matches the reference
+mask but remains flagged physical_edge_qc.
+
+Scope: synthetic shape-stage proof with known seeds and actual ClearMap block/core
+geometry. Arrays and reference markers are loaded globally for diagnostics; this
+does not establish bounded-memory performance or full-detector integration. Real
+peak finding, preprocessing support, seed discovery during expansion, and real 3D
+data remain unvalidated. Large connected components can force large expansions.
+Orientation-dependent ties inside components remain a separate unresolved issue.
+
+Next: test ownership/context recovery with real 3D blocks and actual preprocessing
+and peak detection, including faint bridges and newly discovered halo seeds.
+Automatic merging remains disabled; no production implementation was changed.
+
+### Claude Review 2 follow-up — 2026-10-26 (completed in requested order)
+
+Reviewed REVIEW_FROM_CLAUDE_2026-10-26.md, prioritizing Review 2. The stray model
+copy was already removed and was not restored. No production source, installed
+package, configuration or threshold was changed. Automatic merging stayed off.
+
+1. **Timing wording corrected.** Earlier measurements were for an entire
+   256×256 crop, not one component. The old report gives 0.28–10.63 ms for the
+   component method versus 0.45–1.22 ms globally across all crops. The sparse
+   seeded crop is about 1.85x slower; therefore the review's 6.7–14.5x range
+   does not describe every seeded crop. The log retains rounded 2–14x wording.
+
+2. **Single-seed shortcut added to experimental segment().** The previous
+   implementation is preserved as segment_reference(). A component containing
+   one positive marker ID is assigned entirely to that ID; unseeded components
+   remain zero. Multi-seed components still call watershed. Exact array equality
+   against the reference is asserted on the existing 27 synthetic cases and all
+   eight demo crops. Validation passed:
+   test-data/component-validation-20261026T113739352945Z/report.json.
+   The trace script now delegates to the same segment() implementation.
+   Same-process three-repeat median benchmarks in
+   test-data/review2-geodesic-20261026T113854689110Z/report.json show roughly
+   3.25–8.42x speedup on seeded crops (0.45–2.98 ms per crop for the shortcut).
+   This does not remove the remaining Python component loop or validate scaling.
+
+3. **Geodesic tie-break tried; NOT accepted.** review2_geodesic.py starts with
+   per-component watershed and reassigns whole connected equal-intensity plateaus
+   that compete between labels using shortest face-connected distance to seeds
+   inside the mask. Exact equal-distance ties are explicitly ambiguous (zero
+   plus a separate ambiguity mask), not arbitrarily assigned by ID. This is a
+   diagnostic; zero must not be interpreted as biological background or silently
+   used for cell-size acceptance. Unit voxel steps are not physical distances.
+   Under swap of axes 0/1 and each individual axis flip, flat 2D/3D synthetic
+   cases become invariant, including ambiguity masks. But six of eight real
+   crops still fail at least one transformation (14 failed transformed comparisons
+   in total). Plateau selection inherits orientation-dependent watershed labels;
+   this post-processing does not provide a general invariant segmentation.
+   Evidence: the same review2-geodesic report. No corrected biological boundary
+   claim is supported. The tested 3D swap is axes 0/1, not all permutations.
+
+4. **Actual ClearMap block-boundary tests found remaining failures.**
+   review2_blocks.py tests both repository machine config (size_min=10,
+   size_max=16, overlap=5) and the detection API defaults (50,100,32), along Z,
+   using actual split_into_blocks and detect_cells. Worker/native threads are
+   limited to one; this tests blocking semantics rather than concurrent execution.
+   Known peak masks isolate shape/block behavior; background preprocessing is
+   disabled and threshold stays 168. It does not validate upstream peak finding.
+   Final report: test-data/review2-blocks-20261026T114217189786Z/report.json.
+   Global internal boundary is z=120, verified from block lower + valid.lower.
+
+   Compact cells centered immediately before, at, and after the boundary match
+   single-block coordinates, size (31) and source intensity for both overlaps.
+   Extended cells fail: overlap 5 gives 233→202 pixels; overlap 32 gives 903→834.
+   These components extend beyond the owning block's halo; overlap is shared
+   between blocks, not the same amount of context on each side of a cell.
+
+   Two competing seeds across the boundary retain correct output coordinates
+   but fail size equivalence: single-block sizes 131/110 become 156/210 with
+   overlap 5, and 241/241 with overlap 32. Cells.py filters halo seeds by valid
+   ownership BEFORE shape segmentation, removing competing markers. A diagnostic
+   wrapper keeps halo seeds during segmentation and filters output rows afterward:
+   overlap 32 then matches 131/110 exactly. Overlap 5 still lacks enough context.
+   This wrapper is experiment-only, not a production fix. Output row identity is
+   compared by global seed coordinates; numeric labels are block-local, and
+   stitched voxel-label equivalence has not been established by these tests.
+
+   The first block report (review2-blocks-20261026T114031083768Z) used block-local
+   valid.lower as if global and is superseded: its apparent passes were not a
+   valid internal-boundary test. The corrected intermediate report ends 114113126407Z;
+   the final report above adds the halo-competitor control.
+
+Decision: retain only the equivalent speed shortcut in the experimental baseline.
+Do not adopt the geodesic post-processing or automatic merge rule. Before any
+production proposal, resolve overlap/ownership semantics (including truncated
+components) and develop an orientation-invariant boundary policy with explicit
+ambiguity handling. Biological QC and real 3D validation remain outstanding.
+
 ### Component segmentation validation — 2026-10-26
 
 Scripts: validate_component_segmentation.py and check_component_pipeline.py.
@@ -98,7 +211,9 @@ one native thread, in-process experimental function replacement, and a single
 Z block; it is not multi-block or full-brain pipeline validation.
 
 Median segmentation time over three runs on seeded crops was about 1.3–10.6 ms
-per component versus 0.7–1.2 ms globally (roughly 2–14x slower). Absolute times
+per entire 256×256 crop for the component method versus 0.7–1.2 ms per crop
+globally (roughly 2–14x slower). Including the unseeded crop, the ranges were
+0.28–10.63 ms versus 0.45–1.22 ms per crop. Absolute times
 are tiny on these crops; do not extrapolate to whole brains. Peak memory and
 real 3D throughput have not been measured.
 

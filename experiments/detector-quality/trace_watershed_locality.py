@@ -3,6 +3,7 @@ import inspect
 import test_shallow_dip as t
 from skimage.segmentation import watershed
 import skimage
+from validate_component_segmentation import segment as component_segment
 b=t.b; np=b.np
 root=b.ROOT/'test-data/dip-challenge-20261026T072421541529Z'
 out=b.ROOT/'test-data'/('watershed-locality-'+b.run_stamp); out.mkdir()
@@ -10,12 +11,7 @@ data=b.tifffile.imread(b.ROOT/'test-data/neatmap/RawImage_example/RawImage_merge
 report={'skimage':skimage.__version__,'watershed_source':inspect.getfile(watershed),'crops':[]}
 
 def component_watershed(image,markers,labels):
-    result=np.zeros(markers.shape,dtype=np.int32)
-    for lab,sl in enumerate(b.ndi.find_objects(labels),1):
-        if sl is None: continue
-        local=labels[sl]==lab
-        result[sl]+=watershed(image[sl],markers[sl],mask=local)
-    return result
+    return component_segment(image,markers,labels>0)
 
 for x,y,targets in [(1400,200,[(246,44),(246,46),(247,45)]),(1400,450,[(194,5)])]:
     name=f'x{x}_y{y}'; raw=np.asfortranarray(data[y:y+256,x:x+256].T[:,:,None])
