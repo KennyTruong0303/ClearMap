@@ -8,6 +8,21 @@ goal is an agent integrated into ClearMap: it runs analysis, presents evidence,
 records decisions, and pauses at human scientific review checkpoints. No agent
 integration or production detector changes have been implemented yet.
 
+Architecture clarification, 2026-10-26: the user wants both pipeline execution
+and the separate QC review to use subscription-backed agent sessions. No OpenAI
+API key or separately billed OpenAI API dependency is planned. Replace the
+previous Astra-specific QC role with a separate subscription-agent QC reviewer.
+The execution agent prepares reproducible outputs and evidence; the QC session
+reviews that evidence separately and records findings, uncertainty and recommended
+acceptance/rework; the human retains the agreed scientific approval checkpoints.
+Separate sessions do not guarantee independent errors or biological correctness.
+The eventual ClearMap integration should exchange run manifests, images, metrics
+and review decisions through local artifacts. The exact supported session launch,
+authentication and handoff mechanism must be verified before implementation;
+this plan does not assume an API key, unrestricted unattended subscription access,
+or an already implemented in-process agent. Subscription limits or required
+interaction should leave the run resumable and awaiting review, not auto-approved.
+
 Keep original ClearMap separate. Experiments and evidence live in iDisco-analysis;
 reviewed code changes will belong in ClearMap-work. Preserve provenance, input
 hashes, parameters, before/after outputs, uncertainty and human decisions.
@@ -332,7 +347,7 @@ a recommended universal default. It was selected using this tuning example.
 Next assess fresh touching/unequal-brightness examples and representative 3D
 data before production integration. Full-pipeline and held-out validation remain
 outstanding. No source checkout or production settings changed; A/B remain
-uncertain. Record all future merge proposals for Astra QC and human review.
+uncertain. Record all future merge proposals for separate subscription-agent QC and human review.
 
 ### Remaining double-peak investigation, 2026-10-26
 
@@ -382,4 +397,4 @@ references to iDisco-analysis describe the previous location only. Future
 ClearMap improvement work belongs in ClearMap-work. All 261 moved file hashes
 were verified before path edits; see migration-original-hashes.json.
 The eventual target remains automation of the entire pipeline with a separate
-Astra QC review and human QC checkpoints, not detection-only automation.
+subscription-agent QC review and human QC checkpoints, not detection-only automation.
