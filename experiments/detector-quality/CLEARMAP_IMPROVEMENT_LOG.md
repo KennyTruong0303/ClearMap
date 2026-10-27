@@ -77,6 +77,94 @@ reflect renumbered labels, not necessarily changed boundaries.
 
 ## Integration plan and next checkpoint
 
+### Manual reference pilot prepared — 2026-10-26
+
+User authorized preparing a small manually reviewed 3D reference set.
+build_reference_review.py and reference_review_template.html create a self-contained
+local review page at test-data/reference-review-v1/review.html, with source hashes,
+six fixed disjoint windows, voxel spacing and a prospective tuning/held-out split
+in manifest.json. Automatic detections are hidden. Labels are provisional objects,
+uncertain, artifact or edge; completion is recorded separately per region.
+No human labels or biological accuracy scores exist yet. See
+REFERENCE_REVIEW_PROTOCOL.md for rules, limitations and later evaluation criteria.
+
+Browser smoke check: actual grayscale plane rendered; a test mark appeared with
+XYZ coordinates; Next Z changed the displayed plane; Undo removed the test mark.
+Page returned to its initial plane with no labels. Export/import code is present
+but download/import round-trip has not yet been exercised in the UI. User must
+download JSON to persist labels; no automatic saving is claimed.
+
+### Public spatial sample and real preprocessing validation — 2026-10-26
+
+Selected the official BrainGlobe cellfinder napari tutorial sample:
+https://brainglobe.info/tutorials/cellfinder-detection.html.
+Its tutorial explicitly specifies Z/Y/X spacing 5/2/2 micrometres and describes
+a two-channel 3D sample with artifacts and imperfect detection. The pinned loader
+at brainglobe/cellfinder commit 105f5942d1b9cac98d7a2d5ee591f9826eea5ab0,
+cellfinder/napari/sample_data.py, stacks 30 planes on axis 0 and assigns ch0 Signal,
+ch1 Background. Thus axes are ZYX; ClearMap inputs are transposed to XYZ.
+Exact clearing protocol/stain/modality for this crop was not independently
+established. Do not call it iDISCO or c-Fos validation.
+
+fetch_public_3d.py downloaded 60 TIFFs (40,839,600 bytes total), verified file
+sizes and Git blob hashes against the pinned tree, and recorded SHA256 values.
+Each channel is uint16, shape (30,510,667). Manifest and inputs:
+test-data/public-cellfinder-3d/manifest.json. No weights/models installed.
+
+validate_public_3d.py evaluated three predefined 96×96×30 signal crops starting
+at XY (128,128), (288,256), (480,352). Evidence:
+test-data/public-3d-validation-20261026T123546237544Z/report.json,
+orthogonal-qc.png and CSVs. Threshold stayed 168, background disk 21×21,
+maxima 11×11×1 and plateau collapse unchanged. The Z-neighborhood of one was
+retained deliberately, not calibrated to this sample. Actual ClearMap background
+removal and maxima detection were rerun in every expanded context; seeds were
+not synthetic/fixed. Components intersecting the ownership core, including those
+without a currently owned seed, trigger expansion if cut by an artificial edge.
+
+All three recovered coordinate sets and voxel masks exactly matched their
+single-volume reference: 1,900 / 2,357 / 1,809 seeds. These are candidate counts,
+NOT cell counts or accuracy estimates. New seed observations appeared during
+context expansion (3,153 / 2,615 / 1,052 summed over overlapping contexts, not
+unique new biological objects). No duplicate ownership was permitted.
+Block expansions were 3/2/2, 1/2/1 and 0/2/1 respectively; context often reached
+most or all of the available 30-plane stack. This limits any scaling claim.
+
+On the first crop, actual full detect_cells single-block output matched every
+reference coordinate and size. Using existing block ownership with machine
+settings 10/16/overlap5 returned the same 1,900 coordinates but 421 mismatched
+sizes. Both full runs used the experimental direct markers and component
+segmentation; this is not a comparison against completely untouched ClearMap.
+Context recovery matched all reference voxel masks. Its orchestration was still
+the experimental stage runner, not a production detect_cells integration.
+
+Visual orthogonal QC inspected. Frozen settings generate many candidates,
+including noise; detected regions touching subvolume/acquisition faces numbered
+785 / 394 / 225 and require QC. No biological labels or accuracy validation.
+The real stack strengthens the block-consistency evidence; full-volume memory,
+long-Z filter support, physical calibration, representative iDISCO data, and
+orientation-invariant multi-seed boundaries remain unvalidated. Automatic merging
+and production adoption remain disabled. Inputs/evidence are local and ignored
+by Git; scripts and this record are versionable.
+
+### Real 3D validation input audit — 2026-10-26
+
+User requested validation with real 3D data and actual preprocessing/peak detection.
+audit_3d_inputs.py recorded hashes and metadata in
+test-data/3d-input-audit-20261026T122758403165Z/report.json.
+Both NEATmap files are explicitly tagged TCYX, shape (10,2,788,2048), ImageJ
+frames=10/channels=2, with no verified spatial Z or Z spacing. The accompanying
+Note.txt names slice IDs and c-Fos/autofluorescence channels but does not establish
+that frames are depth. Do not reinterpret them as Z. Previous 2D results remain
+2D evidence. The other located spatial demo is a coarse registration volume;
+it is not suitable for individual-cell validation.
+
+Requested a local cell-resolution 3D stack path and XYZ voxel spacing, or the
+user's preference to select a public sample. Real 3D validation has NOT run or
+passed. Once suitable input is identified, freeze preprocessing/peak settings,
+compare single-volume and block/context-recovery runs using actual detected
+seeds (including newly discovered halo seeds), record physical-edge/incomplete
+cases, and present QC before any production or threshold changes.
+
 ### Fixed ownership and context recovery — 2026-10-26
 
 Experiment: test_block_ownership.py. Evidence:
@@ -398,3 +486,58 @@ ClearMap improvement work belongs in ClearMap-work. All 261 moved file hashes
 were verified before path edits; see migration-original-hashes.json.
 The eventual target remains automation of the entire pipeline with a separate
 subscription-agent QC review and human QC checkpoints, not detection-only automation.
+
+### 2026-10-27: joint review of Kenny's preliminary R1 marks
+- Read exported labels from Downloads/public-cellfinder-reference-labels.json: 2 object, 2 uncertain, 4 artifact; all regions incomplete. Source annotations remain unchanged.
+- Created test-data/reference-review-v1/pair-z12-23.png from raw signal, fixed display range 52..1005, including context outside the review crop. Cyan cross is global XY (154,149), shared by object Z18 and uncertain Z20.
+- Visual interpretation: bright structure persists near the marked XY through neighboring planes, with no clear separation between Z18 and Z20. Provisional same-structure hypothesis; insufficient evidence for two separate cells. Axial persistence/elongation and surrounding intensity changes prevent confident biological identity from this montage alone. No label adjudication or accuracy scoring performed; awaiting joint review.
+
+### 2026-10-27: second joint-review candidate
+- User clarified the Z20 uncertain mark questions cell identity of the same candidate; working adjudication is one candidate with uncertain identity, preserving original export.
+- Rendered object-z3-14.png around global XYZ (139,156,9), fixed display 52..1005 and wider raw context; orange line indicates R1 upper Y boundary at global Y160.
+- The second candidate is compact/rounded near Z7-9 but persists and changes shape through adjacent planes, reaching/crossing the review-window boundary. Provisional edge-affected candidate with uncertain biological identity; no confirmed positive label assigned.
+- Broad brightness change between Z9 and Z10 is visible under fixed display settings, also previously visible at Z19/20. Cause is unverified; do not interpret the brightness change as object termination or biological activity. Further source/plane continuity checks are warranted before treating axial morphology as decisive.
+- No production changes, threshold changes, or accuracy scores.
+
+### 2026-10-27: human-confirmed provisional review decisions
+- Kenny accepted the recommendation for R1 local XYZ (43,60,9), global (139,156,9): edge-affected candidate with uncertain biological cell identity. Kenny confirmed the initial object judgment relied mainly on the rounded appearance at Z9.
+- Preserve this as an uncertain candidate with an edge flag, not a confirmed cell or confirmed artifact. Exclude it from confirmed-cell accuracy scoring pending adjudication; retain it in uncertainty reporting.
+- The original exported annotation file remains unchanged. Together with the earlier XY (58,53), Z18/Z20 identity clarification, neither of the two initially object-labeled candidates is currently a confirmed biological positive. This does not establish absence of cells in R1; review is incomplete.
+- Next prerequisite: investigate the visible broad intensity transitions at Z9/10 and Z19/20 and source plane continuity before using axial shape as decisive evidence.
+
+### 2026-10-27: raw plane continuity audit
+- Added audit_public_plane_continuity.py; report test-data/reference-review-v1/plane-continuity-audit.json. All 60 TIFF SHA256 hashes match the download manifest; both NPY arrays equal their TIFF planes exactly.
+- Signal full-plane medians Z9/10: 233 -> 150 (-35.6%); Z19/20: 247 -> 149 (-39.7%). Background: 231 -> 130 (-43.7%), 245 -> 129 (-47.3%). Repeated rising intensity within each ten-plane span is present in source pixels, not per-frame viewer contrast.
+- Signal adjacent-plane correlations at these boundaries: 0.696 and 0.802; other adjacent pairs range about 0.856-0.941. Correlation alone does not prove spatial continuity or its absence.
+- Embedded signal source labels run consecutively CT_BY_70_2_01270_ch00.tif through 01299. Pinned official cellfinder/napari/sample_data.py fetched directly confirms numeric 0..29 stacking for both channels. No evidence of local ordering error; acquisition/processing cause remains unverified because TIFF metadata lacks acquisition details.
+- Implication: retain sample for computational stress tests and provisional review practice; do not use it to establish biological accuracy or rely on axial apparent shape/intensity termination for confident cell labels. Existing uncertainty decisions preserved. No normalization, production or threshold changes.
+
+### 2026-10-27: better documented biological validation candidates
+- User accepted retaining current cellfinder demo for computational checks rather than biological accuracy validation.
+- Primary-source search identifies DELiVR c-Fos as preferred initial candidate: https://pmc.ncbi.nlm.nih.gov/articles/PMC11239522/ documents 48 annotated 100-cubed patches, 5889 cells, expert-biologist vetting, 39/9 train/test split, and acquisition XY1.625um/Z6um. Patch headers/resampling and downloadable annotation format still require verification. Data links: https://github.com/erturklab/delivr_train and delivr_cfos. Patches derive from one brain, so not independent-brain validation.
+- SELMA3D official data page https://selma3d.grand-challenge.org/data/ supplies annotated patches via BioStudies S-BIAD1196 and cites DELiVR; do not assume independent data or count touching binary-mask components as verified cell instances.
+- CANVAS author paper https://arxiv.org/html/2603.29842v1 documents cFos and five other markers, cell centroids, manual false-negative recovery, and train/test ROIs. Portal https://canvas.lightsheetdata.com . Promising count-oriented complementary benchmark; downloadable subset access and protocol differences require audit.
+- Recommendation: first audit a small DELiVR c-Fos raw/annotation subset, preserve published split, verify axes/physical spacing/mask semantics/plane continuity, then establish one-to-one object metrics before tuning. No new datasets downloaded, no production changes, no biological accuracy claims.
+
+### 2026-10-27: DELiVR step 1 audit; data gate not yet passed
+- Agreed five-step milestone order recorded in DELIVR_DATA_AUDIT.md. Start with data audit; baseline only after prerequisites pass, then held-out comparison, human adoption review, workflow packaging, server parity.
+- Downloaded two pinned official raw/gt pairs (~4.4MB), verified Git blob integrity, saved SHA256 and metadata/continuity report. Added reproducible audit_delivr_subset.py.
+- Both 100-cubed exports have unknown physical units and unit zooms; published acquisition spacing cannot yet be asserted for exported patches. Both masks binary, not individual-cell IDs. Connected-component counts vary by connectivity and are not accepted cell counts.
+- Visually confirmed an abrupt spatial-pattern transition at array-axis2 indices10/11 in patch1008_0 (correlation -0.062). Cause unresolved. Patch1147_0 worst adjacent correlation0.554. No duplicate adjacent planes in either patch.
+- Inventory48 raw/41gt, seven missing gt partners; inspected official training code/config does not identify the paper's nine test patches. All downloaded data quarantined for QA only, no train/test assignment invented. No detector execution or thresholds changed.
+- Details, remaining provenance questions, exact evidence paths and next prerequisites: DELIVR_DATA_AUDIT.md.
+
+### 2026-10-27: DELiVR archived provenance follow-up
+- Publication v1.0.0 cFos inventory has89 blobs identical to current files; 48raw/41gt discrepancy persists in the archived release. Training v1.0.1 tree does not include a named test manifest.
+- Published scoring code intentionally constructs reference instances from binary connected components. Its overlap matching is not one-to-one; duplicate predictions can each earn TP against the same reference. Preserve this distinction from our planned count-accuracy metrics.
+- Supplementary PDF inaccessible through attempted routes; its contents remain unverified. Drafted DELIVR_AUTHOR_QUESTIONS.md, not sent, covering split/calibration/instance references/axis2 discontinuity. Updated DELIVR_DATA_AUDIT.md with evidence. No detector execution or tuning.
+
+### 2026-10-27: CANVAS access audit and DELiVR sending authorization
+- User authorized sending the prepared DELiVR request. No email connector available; asked which email service/account to use. Not sent yet.
+- CANVAS documentation/live portal inspected: documented XYZ1.8/1.8/4um; centroid CSVs; cFos TRAIN3ROIs9390cells, official TEST10619cells withheld. SHIELD/SmartSPIM rather than protocol-matched iDISCO.
+- Data portal's binding license restricts derivative software/models/results and prohibits Production Systems deployment; no download or agreement acceptance. Full details in CANVAS_DATA_AUDIT.md. This materially affects suitability for the planned server pipeline and needs clarification before dataset use.
+
+### CANVAS first subset acquired and inspected
+- User-confirmed registration succeeded; downloaded TRAIN region2 annotations and three adjacent planes, ~202MB total. Official TEST left unopened.
+-2827 unique reference coordinates/IDs; plausible visual overlays. Some labels extend beyond nominal half-open ROI boundaries; preserve them pending convention audit.
+- TIFF units absent; calibration sourced from paper. Three-plane crop intensity/continuity looks consistent (medians345/346/346, correlations0.881/0.892), with limited scope. No biological accuracy claim or detector run. Evidence in CANVAS_DATA_AUDIT.md and test-data/canvas-audit/audit.json.
