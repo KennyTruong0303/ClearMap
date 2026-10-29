@@ -62,6 +62,27 @@ reflect renumbered labels, not necessarily changed boundaries.
 
 ## Integration plan and next checkpoint
 
+### Shallow-dip rule versus built-in h_max, 2026-10-29
+
+Script: compare_dip_vs_hmax.py (seed stage only, ClearMap's own find_maxima).
+Synthetic scenes, 200 per regime, ~7,300 scorable cells each; no real crops yet.
+Run it on the saved crops with --crop <center|right>.npy --region <center|right>.
+
+The h_max path as shipped has four defects: find_center_of_maxima drops the last
+label (np.arange(1, n_label)); uint16 input wraps in source - h_max and raises;
+face-connected labelling splits flattened plateaus and adds seeds (+1.4 per 100
+cells at h=17 where the baseline adds none); and lowering peaks by h while a
+brighter neighbour's slope stays unchanged lets the 11x11 window drop dim cells.
+
+With 16-step intensities (all quoted NEATmap values are multiples of 16), the
+baseline gives about 1 duplicate seed per 100 cells. A 10% dip removes nearly all
+of them with no added lost cells; 6% removes about half. h_max with labelling
+fixed also removes them but loses 0.2-0.7 more cells per 100, rising with h.
+The scenes lack bright bridges, so the dip rule's known overmerges are not
+exercised; Codex's adversarial profiles still show them. Neither rule is ready
+to adopt. Without quantization the baseline produced no duplicates, so test tie
+breaking by smoothing (the disabled dog_filter) next.
+
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 
 Script challenge_shallow_dip.py; results and all six merge images:
