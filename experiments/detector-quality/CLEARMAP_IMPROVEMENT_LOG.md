@@ -82,8 +82,20 @@ With continuous intensities it lost slightly fewer than the baseline (0.72
 against 0.88 per 100), so the h_max losses are tied to the 16-step data.
 The scenes lack bright bridges, so the dip rule's known overmerges are not
 exercised; Codex's adversarial profiles still show them. Neither rule is ready
-to adopt. Without quantization the baseline produced no duplicates, so test tie
-breaking by smoothing (the disabled dog_filter) next.
+to adopt.
+
+Tie-breaking and dog_filter (same benchmark; maxima found on the filtered
+image, threshold 168 kept on the background-corrected image):
+- A pure tie-break (under 0.5 units of a sigma-1 smoothed signal added) removes
+  every duplicate, confirming ties as their cause. It raises lost cells from
+  0.38 to 0.89 per 100, the continuous-data level (0.88): ties were also
+  rescuing dim cells that the 11x11 window suppresses next to brighter
+  neighbours, as in the 320/320 example.
+- Cells.dog_filter with shape (7, 7, 1) and default sigmas gives 0 duplicates
+  and 0.36 lost (additive, 16-step) and 0.32 lost (continuous, baseline 0.88),
+  but 0.83 lost under strong texture, where the 10% dip rule loses 0.31.
+  Shapes 5 and 9 were worse. The DoG output is not in intensity units, so a
+  real run needs its own threshold; test on the saved crops before adopting.
 
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 

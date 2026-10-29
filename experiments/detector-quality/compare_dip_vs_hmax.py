@@ -29,11 +29,14 @@ except ImportError:
     from skimage.morphology import reconstruction
     gr.reconstruct = lambda seed, mask=None, **kwargs: reconstruction(seed, mask, method='dilation')
 import ClearMap.Analysis.Measurements.maxima_detection as md
+import ClearMap.ImageProcessing.Filter.FilterKernel as fk
 
 SHAPE = (11, 11, 1)
 THRESHOLD = 168
 FRACTIONS = [0, .03, .06, .10, .15, .20, .30]
 H_VALUES = [5, 10, 17, 25, 35, 50, 75, 100]
+TIEBREAK_SIGMAS = [1.]  # in-plane Gaussian sigma (pixels) of the tie-break signal
+DOG_SHAPES = [5, 7, 9]  # in-plane dog_filter shape, kernel (s, s, 1)
 BANDS = [('dim', 0, 400), ('mid', 400, 800), ('bright', 800, np.inf)]
 # Noise regimes: additive sigma (intensity units), multiplicative texture amplitude and
 # intensity step. Every NEATmap value quoted in the review notes (304, 288, 400, 272, 32)
@@ -97,8 +100,36 @@ def hmax_seeds(image, h, as_shipped=False, full_connectivity=False):
     return np.rint(centers).astype(int).reshape(-1, image.ndim)
 
 
+def dog_filter(source, shape):
+    """Cells.dog_filter with its default sigmas (Cells needs cv2, so it is not imported)."""
+    filtered = ndi.correlate(source, fk.filter_kernel(ftype='dog', shape=shape).astype('float32'))
+    filtered[filtered < 0] = 0
+    return filtered
+
+
+def filtered_seeds(image, filtered):
+    """Baseline seeds found on a filtered image, thresholded on the unfiltered one.
+
+    The DoG output is not in intensity units, so the detection threshold stays
+    on the background-corrected image and only the choice of maxima changes.
+    """
+    mask = md.find_maxima(filtered, h_max=None, shape=SHAPE, threshold=None) & (image >= THRESHOLD)
+    return np.argwhere(collapse_plateaus(filtered, mask))
+
+
+def tiebreak(image, sigma):
+    """The image plus under 0.5 units of its smoothed self: exact ties are broken
+    by the neighbourhood, and every other intensity order is kept."""
+    smooth = ndi.gaussian_filter(image, (sigma, sigma, 0))
+    return image + .5 * smooth / (smooth.max() + 1)
+
+
 def methods():
     yield 'baseline', None, baseline_seeds
+    for s in TIEBREAK_SIGMAS:
+        yield 'tiebreak', s, lambda image, s=s: filtered_seeds(image, tiebreak(image, s))
+    for s in DOG_SHAPES:
+        yield 'dog', s, lambda image, s=s: filtered_seeds(image, dog_filter(image, (s, s, 1)))
     for f in FRACTIONS[1:]:
         yield 'dip', f, lambda image, f=f: dip_seeds(image, f)
     for h in H_VALUES:
