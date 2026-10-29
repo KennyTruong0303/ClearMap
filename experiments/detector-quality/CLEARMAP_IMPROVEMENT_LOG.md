@@ -77,7 +77,9 @@ brighter neighbour's slope stays unchanged lets the 11x11 window drop dim cells.
 With 16-step intensities (all quoted NEATmap values are multiples of 16), the
 baseline gives about 1 duplicate seed per 100 cells. A 10% dip removes nearly all
 of them with no added lost cells; 6% removes about half. h_max with labelling
-fixed also removes them but loses 0.2-0.7 more cells per 100, rising with h.
+fixed also removes them but loses 0.2-1.0 more cells per 100, rising with h.
+With continuous intensities it lost slightly fewer than the baseline (0.72
+against 0.88 per 100), so the h_max losses are tied to the 16-step data.
 The scenes lack bright bridges, so the dip rule's known overmerges are not
 exercised; Codex's adversarial profiles still show them. Neither rule is ready
 to adopt. Without quantization the baseline produced no duplicates, so test tie
