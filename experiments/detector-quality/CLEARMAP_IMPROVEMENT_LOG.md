@@ -541,3 +541,9 @@ subscription-agent QC review and human QC checkpoints, not detection-only automa
 - User-confirmed registration succeeded; downloaded TRAIN region2 annotations and three adjacent planes, ~202MB total. Official TEST left unopened.
 -2827 unique reference coordinates/IDs; plausible visual overlays. Some labels extend beyond nominal half-open ROI boundaries; preserve them pending convention audit.
 - TIFF units absent; calibration sourced from paper. Three-plane crop intensity/continuity looks consistent (medians345/346/346, correlations0.881/0.892), with limited scope. No biological accuracy claim or detector run. Evidence in CANVAS_DATA_AUDIT.md and test-data/canvas-audit/audit.json.
+
+### 2026-10-30: expanded CANVAS continuity audit completed
+- All12 planes1130..1141 decoded; 340x340XY crop includes20-pixel context. Medians342..347 and adjacent correlations0.853..0.891, visually coherent in expanded-alignment.png.
+-138-center +/-1 voxel diagnostic gives median631 unchanged versus633 at best alternative; insufficient evidence to shift labels. Source coordinates preserved.
+-40 nominal boundary exceptions retained:39 upper-bound and1 lowerX-1. Future scoring must declare interior/core and ambiguity treatment, not silently drop references or mark unlabeled context negative.
+- Data audit progressed;12planes do not yet validate detector preprocessing halo or full3D cell extent. No baseline accuracy claims or detector run. See CANVAS_DATA_AUDIT.md.

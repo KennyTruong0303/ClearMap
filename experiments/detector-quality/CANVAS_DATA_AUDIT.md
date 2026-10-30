@@ -71,3 +71,36 @@ visible in these three planes. This is only a preliminary continuity check, not 
 full-depth audit or biological accuracy evaluation. No detector or tuning run.
 Next: expand contiguous training-region depth with halo, resolve edge/index rules,
 and verify annotation alignment throughout the crop before baseline scoring.
+
+## Expanded audit in progress
+Selected contiguous filename prefixes1130..1141 with20-pixel XY context around
+region2. Nine additional full planes are required. WSL HTTP request returned403;
+Windows download route is working, staging files with .part suffix until complete.
+Audit script extend_canvas_audit.py requires all12 decoded planes before reporting.
+Boundary labels: X lower4401 (1), X upper4702 (15), Y upper3498 (8), Z upper1282 (16).
+These40 labels remain preserved. An inclusive upper boundary explains39, but not
+all; no global indexing correction can be concluded from this alone. Compare
+small coordinate shifts diagnostically, without changing source labels or choosing
+a correction just to maximize signal. Use image context beyond annotation bounds
+for preprocessing only; unannotated context must not count as reference negatives.
+
+## Expanded audit results — 2026-10-30
+All12 requested planes1130..1141 completed and decoded successfully. Local SHA256
+fingerprints saved (these provide reproducibility, not independently published
+checksum verification). Expanded crop shapeZYX12x340x340, originXYZ4382/3178/1130.
+Plane medians347,347,347,347,347,347,347,346,345,344,343,342. Adjacent correlations
+0.853..0.891; no abrupt broad intensity/spatial jump seen in inspected montage.
+Evidence: test-data/canvas-audit/expanded-audit.json and expanded-alignment.png.
+For138 labeled centers across prefixes1133..1138, unchanged coordinates have median
+intensity631; best tested +/-1-voxel shift(0,-1,0) gives633. This small difference
+is not evidence of an indexing correction. Supplied coordinates remain unchanged;
+visual alignment supports their use as a provisional mapping, not exact index proof.
+Boundary discrepancy confirmed:39 at nominal upper limits and1 at lowerX-1.
+Keep complete original CSV and explicitly report boundary ambiguity. For a future
+local pilot, score only a predeclared interior core and exclude ambiguous region
+edges from both prediction/reference scoring; context outside labels is not negative
+reference. No boundary convention silently inferred, no reference cells deleted.
+The12-plane sample is suitable for preliminary input/coordinate checks, but does
+not establish sufficient preprocessing overlap or full-object Z extent. More depth
+or a validated support-based halo is necessary before biological count scoring.
+No ClearMap detection, threshold tuning, or official TEST access performed.
