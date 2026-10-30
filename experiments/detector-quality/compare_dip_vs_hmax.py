@@ -38,6 +38,9 @@ H_VALUES = [5, 10, 17, 25, 35, 50, 75, 100]
 TIEBREAK_SIGMAS = [1.]  # in-plane Gaussian sigma (pixels) of the tie-break signal
 DOG_SHAPES = [5, 7, 9]  # in-plane dog_filter shape, kernel (s, s, 1)
 BANDS = [('dim', 0, 400), ('mid', 400, 800), ('bright', 800, np.inf)]
+VOXEL_UM = np.array([2., 2., 5.])  # x, y, z; as in the BrainGlobe cellfinder sample
+SHAPE_3D = (96, 96, 24)  # voxels: 192 x 192 x 120 micrometres
+CELLS_3D = 150
 # Noise regimes: additive sigma (intensity units), multiplicative texture amplitude and
 # intensity step. Every NEATmap value quoted in the review notes (304, 288, 400, 272, 32)
 # is a multiple of 16, as 12-bit data stored in 16 bits would be; background removal
@@ -75,15 +78,15 @@ def merge(image, seeds, fraction, threshold=THRESHOLD):
     return np.array(sorted(seeds[i].tolist() for i in kept), dtype=int).reshape(-1, image.ndim)
 
 
-def baseline_seeds(image):
-    return np.argwhere(collapse_plateaus(image, md.find_maxima(image, h_max=None, shape=SHAPE, threshold=THRESHOLD)))
+def baseline_seeds(image, shape=SHAPE):
+    return np.argwhere(collapse_plateaus(image, md.find_maxima(image, h_max=None, shape=shape, threshold=THRESHOLD)))
 
 
-def dip_seeds(image, fraction):
-    return merge(image, baseline_seeds(image), fraction)
+def dip_seeds(image, fraction, shape=SHAPE):
+    return merge(image, baseline_seeds(image, shape), fraction)
 
 
-def hmax_seeds(image, h, as_shipped=False, full_connectivity=False):
+def hmax_seeds(image, h, as_shipped=False, full_connectivity=False, shape=SHAPE):
     """Cells.detect_cells_block's h_max path: h-max maxima, label, centre of mass.
 
     as_shipped=True uses md.find_center_of_maxima unchanged, which passes
@@ -92,7 +95,7 @@ def hmax_seeds(image, h, as_shipped=False, full_connectivity=False):
     plateaus that touch only diagonally; full_connectivity=True labels with 3^n.
     """
     structure = np.ones((3,) * image.ndim) if full_connectivity else None
-    labels, n = ndi.label(md.find_maxima(image, h_max=h, shape=SHAPE, threshold=THRESHOLD), structure=structure)
+    labels, n = ndi.label(md.find_maxima(image, h_max=h, shape=shape, threshold=THRESHOLD), structure=structure)
     if as_shipped:
         centers = md.find_center_of_maxima(image, label=labels)
     else:
@@ -107,13 +110,13 @@ def dog_filter(source, shape):
     return filtered
 
 
-def filtered_seeds(image, filtered):
+def filtered_seeds(image, filtered, shape=SHAPE):
     """Baseline seeds found on a filtered image, thresholded on the unfiltered one.
 
     The DoG output is not in intensity units, so the detection threshold stays
     on the background-corrected image and only the choice of maxima changes.
     """
-    mask = md.find_maxima(filtered, h_max=None, shape=SHAPE, threshold=None) & (image >= THRESHOLD)
+    mask = md.find_maxima(filtered, h_max=None, shape=shape, threshold=None) & (image >= THRESHOLD)
     return np.argwhere(collapse_plateaus(filtered, mask))
 
 
@@ -165,22 +168,78 @@ def scene(rng, regime, size=128, n_cells=45):
     return noisy.T[:, :, None], clean.T[:, :, None], amplitude, owner.T[:, :, None]
 
 
+def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D):
+    """Anisotropic 3D version of scene(): cells are round in micrometres, so they
+    span about two to four 5-micrometre planes. Same amplitudes, texture and noise."""
+    sigma = rng.uniform(2.8, 4.8, n_cells)[:, None] / VOXEL_UM  # 1.4-2.4 px in XY, as in 2D
+    amplitude = np.exp(rng.uniform(np.log(200), np.log(1500), n_cells))
+    extent = np.array(shape) * VOXEL_UM
+    margin = np.array([12., 12., 10.])
+    centers = []
+    while len(centers) < n_cells:
+        c = rng.uniform(margin, extent - margin)
+        if all(np.linalg.norm(c - d) > 9 for d in centers):  # 9 um, as 4.5 px in 2D
+            centers.append(c)
+    total = np.zeros(shape); best = np.zeros(shape); owner = np.full(shape, -1)
+    for i, (a, c, s) in enumerate(zip(amplitude, np.array(centers) / VOXEL_UM, sigma)):
+        lo = np.maximum(np.floor(c - 4 * s).astype(int), 0)
+        hi = np.minimum(np.ceil(c + 4 * s).astype(int) + 1, shape)
+        box = tuple(slice(l, h) for l, h in zip(lo, hi))
+        grid = np.ogrid[box]
+        g = a * np.exp(-sum((x - ci) ** 2 / (2 * si ** 2) for x, ci, si in zip(grid, c, s)))
+        total[box] += g
+        win = g > best[box]
+        best[box] = np.where(win, g, best[box]); owner[box] = np.where(win, i, owner[box])
+    owner = np.where((owner >= 0) & (best >= .1 * amplitude[owner]), owner, -1)
+    texture = ndi.gaussian_filter(rng.normal(size=shape), (1, 1, .4))
+    texture /= texture.std()
+    clean = total * (1 + REGIMES[regime]['texture'] * texture)
+    noisy = clean + rng.normal(0, REGIMES[regime]['noise'], shape)
+    step = REGIMES[regime]['step']
+    if step:
+        noisy = np.maximum(np.floor(noisy / step) * step, 0)
+    return noisy, clean, amplitude, owner
+
+
+def methods3d():
+    """In-plane windows of 11 (Codex's 2D setting, +-10 um) and 5 (ClearMap's
+    default, +-4 um) pixels, by 1, 3 or 5 planes (+-0, 5, 10 um in Z)."""
+    for w, zs in ((11, (1, 3, 5)), (5, (1, 3))):
+        for z in zs:
+            yield f'baseline_w{w}_z{z}', None, lambda image, w=w, z=z: baseline_seeds(image, (w, w, z))
+    for f in (.06, .10):
+        yield 'dip_w11_z1', f, lambda image, f=f: dip_seeds(image, f, (11, 11, 1))
+    yield 'dip_w11_z3', .10, lambda image: dip_seeds(image, .10, (11, 11, 3))
+    yield 'dip_w5_z1', .10, lambda image: dip_seeds(image, .10, (5, 5, 1))
+    for w, z in ((11, 1), (11, 3), (5, 1)):
+        yield f'h_max_full_w{w}_z{z}', 17, lambda image, w=w, z=z: hmax_seeds(image, 17, full_connectivity=True, shape=(w, w, z))
+    yield 'tiebreak_w11_z3', 1., lambda image: filtered_seeds(image, tiebreak(image, 1.), (11, 11, 3))
+    yield 'dog_w11_z3', 7, lambda image: filtered_seeds(image, dog_filter(image, (7, 7, 3)), (11, 11, 3))
+
+
 def score(seeds, owner, n_cells):
     """Seeds per cell, plus seeds that fall on no cell."""
     hits = owner[tuple(seeds.T)] if len(seeds) else np.array([], int)
     return np.bincount(hits[hits >= 0], minlength=n_cells), int((hits < 0).sum())
 
 
-def benchmark(n_scenes, seed):
+def benchmark(n_scenes, seed, dims=2):
     rows = []
     for regime in REGIMES:
         rng = np.random.default_rng(seed)
         totals = {}
         for _ in range(n_scenes):
-            noisy, clean, amplitude, owner = scene(rng, regime)
-            # Score only cells that are separable in the noise-free image.
-            scorable = score(baseline_seeds(clean), owner, len(amplitude))[0] >= 1
-            for name, value, find in methods():
+            if dims == 2:
+                noisy, clean, amplitude, owner = scene(rng, regime)
+                # Score only cells that are separable in the noise-free image.
+                scorable = score(baseline_seeds(clean), owner, len(amplitude))[0] >= 1
+            else:
+                noisy, clean, amplitude, owner = scene3d(rng, regime)
+                # In 3D the window itself is under test, so a cell is scorable when the
+                # noise-free image has a 3x3x3 local maximum above threshold on it.
+                peaks = (ndi.maximum_filter(clean, size=3) == clean) & (clean >= THRESHOLD)
+                scorable = score(np.argwhere(peaks), owner, len(amplitude))[0] >= 1
+            for name, value, find in (methods() if dims == 2 else methods3d()):
                 per_cell, stray = score(find(noisy), owner, len(amplitude))
                 for band, lo, hi in BANDS:
                     sel = scorable & (amplitude >= lo) & (amplitude < hi)
@@ -245,8 +304,9 @@ def main():
     parser.add_argument('--crop', type=Path, help='Saved x,y,z crop volume (.npy)')
     parser.add_argument('--region', choices=list(REVIEWED), help='Which reviewed objects the crop holds')
     parser.add_argument('--corrected', action='store_true', help='Crop is already background-corrected')
+    parser.add_argument('--dims', type=int, choices=[2, 3], default=2, help='Synthetic benchmark in 2D or anisotropic 3D')
     args = parser.parse_args()
-    out = ROOT / 'test-data' / ('dip-vs-hmax-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
+    out = ROOT / 'test-data' / ('dip-vs-hmax-' + ('3d-' if args.dims == 3 else '') + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
     out.mkdir(parents=True, exist_ok=False)
 
     # The shipped h_max path drops the last maximum: two maxima in, one centre out.
@@ -260,8 +320,11 @@ def main():
             parser.error('--crop needs --region')
         report['real_crop'] = real_crop(args.crop, args.region, args.corrected)
     else:
-        report['profiles'] = profiles()
-        report['benchmark'] = benchmark(args.scenes, args.seed)
+        if args.dims == 3:
+            report['parameters'].update(voxel_xyz_um=VOXEL_UM.tolist(), volume=SHAPE_3D, cells_per_scene=CELLS_3D)
+        else:
+            report['profiles'] = profiles()
+        report['benchmark'] = benchmark(args.scenes, args.seed, args.dims)
     (out / 'report.json').write_text(json.dumps(report, indent=2, default=float))
     print(out)
     print(json.dumps({k: v for k, v in report.items() if k != 'benchmark'}, indent=2, default=float))
