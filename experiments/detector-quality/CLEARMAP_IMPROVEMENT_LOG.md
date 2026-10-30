@@ -110,10 +110,15 @@ duplicate seeds per 100 cells / cells lost per 100:
 - Dip 10% on 5x5x1: 0.5 / 2.0 (0.2-0.8 / 1.8-2.2 across all three regimes).
   Fixed h_max (h=17) on 5x5x1: 0.1 / 2.6, but 1.9 / 2.2 under texture.
 - dog_filter (7,7,3) with 11x11x3: 0 / 16.6; it does not offset the window loss.
-  Not tested with the 5-pixel window.
-In 3D, the window choice matters far more than any merge rule. The dip rule
-remains useful on a per-plane window. Losses depend on cell density, so check
-the window on real 3D data before choosing one.
+- dog_filter (5,5,3) with 5x5x3: 0.0 / 1.5 (texture 0.0 / 1.6, continuous
+  0.0 / 1.0), the best of every method in all three regimes. Kernel (7,7,3)
+  with 5x5x3 gives 0.0 / 2.8, no better than no filter. With a per-plane 5x5x1
+  window, either kernel still gives about one extra seed per cell. Run with
+  --methods dog_w5 baseline_w5; the baselines reproduce the full run exactly.
+In 3D, the window choice matters far more than any merge rule. dog_filter
+(5,5,3) with a 5x5x3 window needs no new code, only existing ClearMap settings;
+it still needs a threshold set on the DoG output. Losses depend on cell
+density, so check the window and kernel on real 3D data before choosing.
 
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 

@@ -215,6 +215,9 @@ def methods3d():
         yield f'h_max_full_w{w}_z{z}', 17, lambda image, w=w, z=z: hmax_seeds(image, 17, full_connectivity=True, shape=(w, w, z))
     yield 'tiebreak_w11_z3', 1., lambda image: filtered_seeds(image, tiebreak(image, 1.), (11, 11, 3))
     yield 'dog_w11_z3', 7, lambda image: filtered_seeds(image, dog_filter(image, (7, 7, 3)), (11, 11, 3))
+    for k in (7, 5):
+        for z in (1, 3):
+            yield f'dog_w5_z{z}', k, lambda image, k=k, z=z: filtered_seeds(image, dog_filter(image, (k, k, 3)), (5, 5, z))
 
 
 def score(seeds, owner, n_cells):
@@ -223,7 +226,7 @@ def score(seeds, owner, n_cells):
     return np.bincount(hits[hits >= 0], minlength=n_cells), int((hits < 0).sum())
 
 
-def benchmark(n_scenes, seed, dims=2):
+def benchmark(n_scenes, seed, dims=2, only=None):
     rows = []
     for regime in REGIMES:
         rng = np.random.default_rng(seed)
@@ -240,6 +243,8 @@ def benchmark(n_scenes, seed, dims=2):
                 peaks = (ndi.maximum_filter(clean, size=3) == clean) & (clean >= THRESHOLD)
                 scorable = score(np.argwhere(peaks), owner, len(amplitude))[0] >= 1
             for name, value, find in (methods() if dims == 2 else methods3d()):
+                if only and not any(name.startswith(prefix) for prefix in only):
+                    continue
                 per_cell, stray = score(find(noisy), owner, len(amplitude))
                 for band, lo, hi in BANDS:
                     sel = scorable & (amplitude >= lo) & (amplitude < hi)
@@ -305,6 +310,8 @@ def main():
     parser.add_argument('--region', choices=list(REVIEWED), help='Which reviewed objects the crop holds')
     parser.add_argument('--corrected', action='store_true', help='Crop is already background-corrected')
     parser.add_argument('--dims', type=int, choices=[2, 3], default=2, help='Synthetic benchmark in 2D or anisotropic 3D')
+    parser.add_argument('--methods', nargs='+', help='Run only methods whose names start with these prefixes; '
+                        'scenes depend only on --seed, so results stay comparable with a full run')
     args = parser.parse_args()
     out = ROOT / 'test-data' / ('dip-vs-hmax-' + ('3d-' if args.dims == 3 else '') + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
     out.mkdir(parents=True, exist_ok=False)
@@ -324,7 +331,7 @@ def main():
             report['parameters'].update(voxel_xyz_um=VOXEL_UM.tolist(), volume=SHAPE_3D, cells_per_scene=CELLS_3D)
         else:
             report['profiles'] = profiles()
-        report['benchmark'] = benchmark(args.scenes, args.seed, args.dims)
+        report['benchmark'] = benchmark(args.scenes, args.seed, args.dims, args.methods)
     (out / 'report.json').write_text(json.dumps(report, indent=2, default=float))
     print(out)
     print(json.dumps({k: v for k, v in report.items() if k != 'benchmark'}, indent=2, default=float))
