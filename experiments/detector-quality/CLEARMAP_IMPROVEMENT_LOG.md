@@ -97,6 +97,24 @@ image, threshold 168 kept on the background-corrected image):
   Shapes 5 and 9 were worse. The DoG output is not in intensity units, so a
   real run needs its own threshold; test on the saved crops before adopting.
 
+Anisotropic 3D (--dims 3), 2026-10-30: 96x96x24 volumes, 2x2x5 um voxels, 150
+cells per volume (about 34,000 per mm^3), cells round in micrometres, 40 scenes
+per regime, ~5,600 scorable cells each. A cell is scorable when the noise-free
+image has a 3x3x3 local maximum above 168 on it. Additive 16-step regime,
+duplicate seeds per 100 cells / cells lost per 100:
+- Window 11x11x1 (current): 108 / 5.5. One extra seed per cell, from adjacent
+  planes; about 100 times the 2D tie duplicates.
+- 11x11x3: 1.6 / 17.5; 11x11x5: 1.2 / 28.1. The 11-pixel in-plane window,
+  tuned on 2D crops, suppresses dim cells in neighbouring planes.
+- 5x5x1 (ClearMap's default in-plane size): 123 / 0.7; 5x5x3: 2.0 / 2.7.
+- Dip 10% on 5x5x1: 0.5 / 2.0 (0.2-0.8 / 1.8-2.2 across all three regimes).
+  Fixed h_max (h=17) on 5x5x1: 0.1 / 2.6, but 1.9 / 2.2 under texture.
+- dog_filter (7,7,3) with 11x11x3: 0 / 16.6; it does not offset the window loss.
+  Not tested with the 5-pixel window.
+In 3D, the window choice matters far more than any merge rule. The dip rule
+remains useful on a per-plane window. Losses depend on cell density, so check
+the window on real 3D data before choosing one.
+
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 
 Script challenge_shallow_dip.py; results and all six merge images:
