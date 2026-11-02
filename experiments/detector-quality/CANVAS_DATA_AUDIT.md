@@ -104,3 +104,22 @@ The12-plane sample is suitable for preliminary input/coordinate checks, but does
 not establish sufficient preprocessing overlap or full-object Z extent. More depth
 or a validated support-based halo is necessary before biological count scoring.
 No ClearMap detection, threshold tuning, or official TEST access performed.
+
+## Context experiment — 2026-10-30
+Defined fixed core[4422,3218,1134)..[4682,3478,1138). Original detector with frozen
+prior experimental settings fails context invariance. At XY halo40 and Z halos2/3/4,
+all runs return827 candidates but coordinate identities and hundreds of sizes differ.
+Largest-context repeat is exact. This is a computational context test, not biological
+accuracy; no sufficient context established. See improvement log and
+ test-data/canvas-context-20261030T071132877319Z/report.json.
+
+## Further depth qualification — 2026-10-30
+The same scoring core now has a20-plane context crop (prefixes1126..1145).
+All20 planes decode; original12 cropped planes match exactly. Audit and hashes:
+`test-data/canvas-audit/depth20-audit.json`. Fixed stage checks at Zhalos4/6/8
+show unchanged corrected core and848 peak positions. Per-component segmentation
+size changes decline34 then7, but84 components containing280 core peaks still
+touch artificial Z faces at halo8. Repeat is exact; sufficient context is NOT
+established. Details in improvement log and
+`test-data/canvas-stages-20261030T074022793575Z/report.json`.
+No biological scoring, annotation changes or official TEST access.
