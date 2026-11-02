@@ -45,6 +45,7 @@ CELLS_3D = 150
 DOG_THRESHOLD_SCALES = [.5, .75, 1., 1.25, 1.5]  # multiples of the DoG threshold equivalent to 168
 SHAPE_THRESHOLD_SCALES = [.25, .5, .75, 1.]  # DoG shape-detection thresholds, same multiples
 SIZE_MIN = 5  # voxels; the lower size limit used in the demo-crop experiments
+RELATIVE_FRACTIONS = [.25, .5, .75]  # per-cell shape cut, as a fraction of the cell's own seed value
 # Noise regimes: additive sigma (intensity units), multiplicative texture amplitude and
 # intensity step. Every NEATmap value quoted in the review notes (304, 288, 400, 272, 32)
 # is a multiple of 16, as 12-bit data stored in 16 bits would be; background removal
@@ -296,20 +297,48 @@ def benchmark(n_scenes, seed, dims=2, only=None):
     return rows
 
 
+def relative_cut(labels, seeds, field, fraction):
+    """Keep, in each seed's region, the voxels at or above fraction x the field's
+    value at that seed, and only the part connected to the seed."""
+    peak = np.concatenate([[np.inf], field[tuple(seeds.T)]])
+    keep = (labels > 0) & (field >= fraction * peak[labels])
+    components, _ = ndi.label(keep)
+    at_seed = np.concatenate([[0], components[tuple(seeds.T)]])
+    keep &= components == at_seed[labels]
+    return np.where(keep, labels, 0)
+
+
 def shape_variants():
     """Shape detection as ClearMap runs it: a seeded watershed restricted to a
-    thresholded mask, on the image without dog_filter and on the DoG output with it."""
-    yield 'intensity', None, lambda image: (baseline_seeds(image, (5, 5, 3)), image, image > THRESHOLD)
+    thresholded mask, on the image without dog_filter and on the DoG output with it.
+    Each variant returns seeds, the watershed field, its mask and an optional
+    per-cell relative cut (fraction, field the fraction applies to)."""
+    yield 'intensity', None, lambda image: (baseline_seeds(image, (5, 5, 3)), image, image > THRESHOLD, None)
     t = THRESHOLD * dog_gain((5, 5, 3))
     for scale in SHAPE_THRESHOLD_SCALES:
         def run(image, scale=scale):
             filtered = dog_filter(image, (5, 5, 3))
             seeds = dog_threshold_seeds(image, (5, 5, 3), (5, 5, 3), .75 * t)
-            return seeds, filtered, filtered > scale * t
+            return seeds, filtered, filtered > scale * t, None
         yield 'dog', round(scale * t, 1), run
+    # Per-cell relative threshold: watershed on the DoG with a loose mask (0.25x),
+    # then cut each region at a fraction of its own seed value.
+    for fraction in RELATIVE_FRACTIONS:
+        def run(image, fraction=fraction):
+            filtered = dog_filter(image, (5, 5, 3))
+            seeds = dog_threshold_seeds(image, (5, 5, 3), (5, 5, 3), .75 * t)
+            return seeds, filtered, filtered > .25 * t, (fraction, filtered)
+        yield 'rel_dog', fraction, run
+    # The same cut on the image intensity. Partly circular: the reference
+    # footprint is itself defined at half of each cell's intensity peak.
+    def run(image):
+        filtered = dog_filter(image, (5, 5, 3))
+        seeds = dog_threshold_seeds(image, (5, 5, 3), (5, 5, 3), .75 * t)
+        return seeds, filtered, filtered > .25 * t, (.5, image)
+    yield 'rel_img', .5, run
 
 
-def shape_benchmark(n_scenes, seed):
+def shape_benchmark(n_scenes, seed, only=None):
     """Compare each detected cell's region with its half-maximum footprint (3D)."""
     rows = []
     for regime in REGIMES:
@@ -321,10 +350,14 @@ def shape_benchmark(n_scenes, seed):
             scorable = score(np.argwhere(peaks), owner, len(amplitude))[0] >= 1
             true = np.bincount(core[core >= 0], minlength=len(amplitude))
             for name, value, run in shape_variants():
-                seeds, field, mask = run(noisy)
+                if only and not any(name.startswith(prefix) for prefix in only):
+                    continue
+                seeds, field, mask, cut = run(noisy)
                 markers = np.zeros(noisy.shape, np.int32)
                 markers[tuple(seeds.T)] = np.arange(1, len(seeds) + 1)
                 labels = watershed(-field, markers, mask=mask)
+                if cut:
+                    labels = relative_cut(labels, seeds, cut[1], cut[0])
                 # Map each region to the cell its seed sits on; a cell's region is
                 # the union of its seeds' regions.
                 to_cell = np.concatenate([[-1], owner[tuple(seeds.T)]]) if len(seeds) else np.array([-1])
@@ -420,7 +453,7 @@ def main():
     if args.shapes:
         report['parameters'].update(voxel_xyz_um=VOXEL_UM.tolist(), volume=SHAPE_3D, cells_per_scene=CELLS_3D,
                                     seed_dog_threshold=.75 * THRESHOLD * dog_gain((5, 5, 3)), size_min=SIZE_MIN)
-        report['shape_benchmark'] = shape_benchmark(args.scenes, args.seed)
+        report['shape_benchmark'] = shape_benchmark(args.scenes, args.seed, args.methods)
     elif args.crop:
         if not args.region:
             parser.error('--crop needs --region')

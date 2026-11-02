@@ -154,7 +154,26 @@ other two regimes agree within about one point:
   region (their seed lies outside the mask) and 29.2% fall under 5 voxels.
 Set the shape threshold equal to, never above, the seed threshold. Measured size
 grows with brightness in every setting, so a size filter partly filters by
-brightness; a per-cell relative threshold might remove that, but is untested.
+brightness.
+
+Per-cell relative shape threshold, 2026-11-02 (--shapes --methods rel; same
+scenes). Watershed on the DoG with a loose mask (DoG > 3.2), then each region is
+cut to the voxels at or above a fraction of the DoG value at its own seed, keeping
+the part connected to the seed (relative_cut). Size / true size dim / mid /
+bright, additive 16-step (other regimes within 0.03):
+- 50% of own DoG peak: 0.87 / 0.91 / 0.92; IoU 0.80 / 0.80 / 0.81; no cell
+  under 5 voxels. Bright cells are 1.06 times dim ones, against 3.6 times for
+  the absolute DoG threshold 9.7 (IoU there 0.72 dim, 0.33 bright).
+- 25%: 1.79 / 1.90 / 1.97, IoU 0.51-0.56. 75%: 0.34-0.36, and 15-20% of cells
+  in every band fall under 5 voxels.
+- 50% of own image peak: 1.21 / 1.24 / 1.21, IoU 0.77-0.82. Partly circular,
+  because the reference footprint is defined at half of each intensity peak.
+A 50% relative cut on the DoG makes measured size independent of brightness, so
+a size filter would filter by size alone. ClearMap has no such option; it would
+need about ten lines in shape detection. Caveat: the synthetic cells are
+Gaussian, for which a fraction of the peak is a fixed fraction of the radius
+at every brightness. Flat-topped or irregular real nuclei may behave
+differently; check on real 3D data.
 
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 
