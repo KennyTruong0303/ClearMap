@@ -47,7 +47,10 @@ SHAPE_THRESHOLD_SCALES = [.25, .5, .75, 1.]  # DoG shape-detection thresholds, s
 SIZE_MIN = 5  # voxels; the lower size limit used in the demo-crop experiments
 RELATIVE_FRACTIONS = [.25, .5, .75]
 PSF_UM = np.array([1., 1., 2.])  # Gaussian point-spread sigma for flat-topped cells, x, y, z
-SUPERSAMPLE = (4, 4, 8)  # sub-voxels per voxel when rendering a sphere's partial volume  # per-cell shape cut, as a fraction of the cell's own seed value
+SUPERSAMPLE = (4, 4, 8)  # sub-voxels per voxel when rendering a sphere's partial volume
+# Irregular nuclei: axis spread (log-normal sigma), outline lumpiness, chromatin texture
+# amplitude and scale in micrometres.
+IRREGULAR = dict(axis_sd=.15, lumps=.12, texture=.25, texture_um=1.5)  # per-cell shape cut, as a fraction of the cell's own seed value
 # Noise regimes: additive sigma (intensity units), multiplicative texture amplitude and
 # intensity step. Every NEATmap value quoted in the review notes (304, 288, 400, 272, 32)
 # is a multiple of 16, as 12-bit data stored in 16 bits would be; background removal
@@ -215,14 +218,46 @@ def flat_cell(center, radius_um, shape):
     return tuple(slice(l, h) for l, h in zip(lo, hi)), blurred / blurred.max(), occupancy
 
 
+def irregular_cell(center, radius_um, shape, crng):
+    """A deformed, textured nucleus blurred by the point-spread function, peak 1.
+
+    Starts from flat_cell's sphere: a randomly oriented ellipsoid of the same
+    volume (axes vary by about IRREGULAR['axis_sd']), with a lumpy outline (radius
+    varies smoothly with direction by about IRREGULAR['lumps']) and chromatin
+    texture inside (intensity varies by about IRREGULAR['texture']). Returns the
+    box, the blurred values and the unblurred partial-volume occupancy."""
+    axes_len = np.exp(crng.normal(0, IRREGULAR['axis_sd'], 3))
+    axes_len /= np.prod(axes_len) ** (1 / 3)
+    rotation, _ = np.linalg.qr(crng.normal(size=(3, 3)))
+    directions = crng.normal(size=(3, 3))
+    directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+    phases = crng.uniform(0, 2 * np.pi, 3)
+    half = (radius_um * axes_len.max() * (1 + 2 * IRREGULAR['lumps']) + 3 * PSF_UM) / VOXEL_UM
+    lo = np.maximum(np.floor(center - half).astype(int), 0)
+    hi = np.minimum(np.ceil(center + half).astype(int) + 1, shape)
+    axes = [(l + (np.arange((h - l) * k) + .5) / k - c) * v
+            for l, h, k, c, v in zip(lo, hi, SUPERSAMPLE, center, VOXEL_UM)]
+    points = np.stack(np.meshgrid(*axes, indexing='ij'), axis=-1) @ rotation.T / (radius_um * axes_len)
+    rho = np.linalg.norm(points, axis=-1)
+    unit = points / np.maximum(rho, 1e-9)[..., None]
+    lumps = IRREGULAR['lumps'] * np.cos(2 * np.pi * unit @ directions.T + phases).sum(-1) / np.sqrt(3)
+    n = hi - lo
+    occupancy = (rho <= 1 + lumps).reshape(n[0], SUPERSAMPLE[0], n[1], SUPERSAMPLE[1], n[2], SUPERSAMPLE[2]).mean(axis=(1, 3, 5))
+    texture = ndi.gaussian_filter(crng.normal(size=tuple(n)), IRREGULAR['texture_um'] / VOXEL_UM)
+    texture = np.clip(1 + IRREGULAR['texture'] * texture / max(texture.std(), 1e-9), .2, None)
+    blurred = ndi.gaussian_filter(occupancy * texture, PSF_UM / VOXEL_UM, mode='constant')
+    return tuple(slice(l, h) for l, h in zip(lo, hi)), blurred / blurred.max(), occupancy
+
+
 def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D, with_core=False, profile='gaussian', truth='halfmax'):
     """Anisotropic 3D version of scene(): cells are round in micrometres, so they
     span about two to four 5-micrometre planes. Same amplitudes, texture and noise.
 
     profile='flat' replaces each Gaussian with a blurred uniform sphere whose radius
     is the Gaussian's half width at half maximum; the random draws are unchanged.
-    truth='sphere' (flat profile only) scores against the unblurred sphere, voxels
-    at least half inside it, instead of the half-maximum footprint."""
+    profile='irregular' deforms and textures that sphere (irregular_cell).
+    truth='sphere' (flat or irregular profile) scores against the unblurred shape,
+    voxels at least half inside it, instead of the half-maximum footprint."""
     sigma_um = rng.uniform(2.8, 4.8, n_cells)
     sigma = sigma_um[:, None] / VOXEL_UM  # 1.4-2.4 px in XY, as in 2D
     amplitude = np.exp(rng.uniform(np.log(200), np.log(1500), n_cells))
@@ -234,9 +269,14 @@ def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D, with_core=False, prof
         if all(np.linalg.norm(c - d) > 9 for d in centers):  # 9 um, as 4.5 px in 2D
             centers.append(c)
     total = np.zeros(shape); best = np.zeros(shape); owner = np.full(shape, -1); sphere = np.full(shape, -1)
+    # Irregular shapes draw from a spawned generator, so the main draws stay identical.
+    crng = rng.spawn(1)[0] if profile == 'irregular' else None
     for i, (a, c, s) in enumerate(zip(amplitude, np.array(centers) / VOXEL_UM, sigma)):
-        if profile == 'flat':
-            box, unit, occupancy = flat_cell(c, np.sqrt(2 * np.log(2)) * sigma_um[i], shape)
+        if profile in ('flat', 'irregular'):
+            if profile == 'flat':
+                box, unit, occupancy = flat_cell(c, np.sqrt(2 * np.log(2)) * sigma_um[i], shape)
+            else:
+                box, unit, occupancy = irregular_cell(c, np.sqrt(2 * np.log(2)) * sigma_um[i], shape, crng)
             g = a * unit
             sphere[box] = np.where((occupancy >= .5) & (sphere[box] < 0), i, sphere[box])
         else:
@@ -470,10 +510,11 @@ def main():
     parser.add_argument('--corrected', action='store_true', help='Crop is already background-corrected')
     parser.add_argument('--dims', type=int, choices=[2, 3], default=2, help='Synthetic benchmark in 2D or anisotropic 3D')
     parser.add_argument('--shapes', action='store_true', help='3D shape-detection comparison instead of seeds')
-    parser.add_argument('--profile', choices=['gaussian', 'flat'], default='gaussian',
-                        help='3D cell profile for --shapes: Gaussian, or a blurred uniform sphere')
+    parser.add_argument('--profile', choices=['gaussian', 'flat', 'irregular'], default='gaussian',
+                        help='3D cell profile for --shapes: Gaussian, a blurred uniform sphere, '
+                             'or a blurred deformed, textured nucleus')
     parser.add_argument('--truth', choices=['halfmax', 'sphere'], default='halfmax',
-                        help='Reference extent for --shapes; sphere needs --profile flat')
+                        help='Reference extent for --shapes; sphere (the unblurred shape) needs a flat or irregular profile')
     parser.add_argument('--methods', nargs='+', help='Run only methods whose names start with these prefixes; '
                         'scenes depend only on --seed, so results stay comparable with a full run')
     args = parser.parse_args()
@@ -492,9 +533,10 @@ def main():
     if args.shapes:
         report['parameters'].update(voxel_xyz_um=VOXEL_UM.tolist(), volume=SHAPE_3D, cells_per_scene=CELLS_3D,
                                     seed_dog_threshold=.75 * THRESHOLD * dog_gain((5, 5, 3)), size_min=SIZE_MIN,
-                                    profile=args.profile, truth=args.truth, psf_um=PSF_UM.tolist())
-        if args.truth == 'sphere' and args.profile != 'flat':
-            parser.error('--truth sphere needs --profile flat')
+                                    profile=args.profile, truth=args.truth, psf_um=PSF_UM.tolist(),
+                                    irregular=IRREGULAR if args.profile == 'irregular' else None)
+        if args.truth == 'sphere' and args.profile == 'gaussian':
+            parser.error('--truth sphere needs --profile flat or irregular')
         report['shape_benchmark'] = shape_benchmark(args.scenes, args.seed, args.methods, args.profile, args.truth)
     elif args.crop:
         if not args.region:
