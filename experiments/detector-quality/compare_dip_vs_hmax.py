@@ -45,7 +45,9 @@ CELLS_3D = 150
 DOG_THRESHOLD_SCALES = [.5, .75, 1., 1.25, 1.5]  # multiples of the DoG threshold equivalent to 168
 SHAPE_THRESHOLD_SCALES = [.25, .5, .75, 1.]  # DoG shape-detection thresholds, same multiples
 SIZE_MIN = 5  # voxels; the lower size limit used in the demo-crop experiments
-RELATIVE_FRACTIONS = [.25, .5, .75]  # per-cell shape cut, as a fraction of the cell's own seed value
+RELATIVE_FRACTIONS = [.25, .5, .75]
+PSF_UM = np.array([1., 1., 2.])  # Gaussian point-spread sigma for flat-topped cells, x, y, z
+SUPERSAMPLE = (4, 4, 8)  # sub-voxels per voxel when rendering a sphere's partial volume  # per-cell shape cut, as a fraction of the cell's own seed value
 # Noise regimes: additive sigma (intensity units), multiplicative texture amplitude and
 # intensity step. Every NEATmap value quoted in the review notes (304, 288, 400, 272, 32)
 # is a multiple of 16, as 12-bit data stored in 16 bits would be; background removal
@@ -196,10 +198,33 @@ def scene(rng, regime, size=128, n_cells=45):
     return noisy.T[:, :, None], clean.T[:, :, None], amplitude, owner.T[:, :, None]
 
 
-def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D, with_core=False):
+def flat_cell(center, radius_um, shape):
+    """A uniform sphere (a nucleus) blurred by the point-spread function, peak 1.
+
+    The sphere is rendered at sub-voxel resolution so edge voxels get their
+    partial volume. Returns the box it occupies and its values there."""
+    half = (radius_um + 3 * PSF_UM) / VOXEL_UM
+    lo = np.maximum(np.floor(center - half).astype(int), 0)
+    hi = np.minimum(np.ceil(center + half).astype(int) + 1, shape)
+    axes = [(l + (np.arange((h - l) * k) + .5) / k - c) * v
+            for l, h, k, c, v in zip(lo, hi, SUPERSAMPLE, center, VOXEL_UM)]
+    fine = np.add.outer(np.add.outer(axes[0] ** 2, axes[1] ** 2), axes[2] ** 2) <= radius_um ** 2
+    n = hi - lo
+    occupancy = fine.reshape(n[0], SUPERSAMPLE[0], n[1], SUPERSAMPLE[1], n[2], SUPERSAMPLE[2]).mean(axis=(1, 3, 5))
+    blurred = ndi.gaussian_filter(occupancy, PSF_UM / VOXEL_UM, mode='constant')
+    return tuple(slice(l, h) for l, h in zip(lo, hi)), blurred / blurred.max(), occupancy
+
+
+def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D, with_core=False, profile='gaussian', truth='halfmax'):
     """Anisotropic 3D version of scene(): cells are round in micrometres, so they
-    span about two to four 5-micrometre planes. Same amplitudes, texture and noise."""
-    sigma = rng.uniform(2.8, 4.8, n_cells)[:, None] / VOXEL_UM  # 1.4-2.4 px in XY, as in 2D
+    span about two to four 5-micrometre planes. Same amplitudes, texture and noise.
+
+    profile='flat' replaces each Gaussian with a blurred uniform sphere whose radius
+    is the Gaussian's half width at half maximum; the random draws are unchanged.
+    truth='sphere' (flat profile only) scores against the unblurred sphere, voxels
+    at least half inside it, instead of the half-maximum footprint."""
+    sigma_um = rng.uniform(2.8, 4.8, n_cells)
+    sigma = sigma_um[:, None] / VOXEL_UM  # 1.4-2.4 px in XY, as in 2D
     amplitude = np.exp(rng.uniform(np.log(200), np.log(1500), n_cells))
     extent = np.array(shape) * VOXEL_UM
     margin = np.array([12., 12., 10.])
@@ -208,13 +233,18 @@ def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D, with_core=False):
         c = rng.uniform(margin, extent - margin)
         if all(np.linalg.norm(c - d) > 9 for d in centers):  # 9 um, as 4.5 px in 2D
             centers.append(c)
-    total = np.zeros(shape); best = np.zeros(shape); owner = np.full(shape, -1)
+    total = np.zeros(shape); best = np.zeros(shape); owner = np.full(shape, -1); sphere = np.full(shape, -1)
     for i, (a, c, s) in enumerate(zip(amplitude, np.array(centers) / VOXEL_UM, sigma)):
-        lo = np.maximum(np.floor(c - 4 * s).astype(int), 0)
-        hi = np.minimum(np.ceil(c + 4 * s).astype(int) + 1, shape)
-        box = tuple(slice(l, h) for l, h in zip(lo, hi))
-        grid = np.ogrid[box]
-        g = a * np.exp(-sum((x - ci) ** 2 / (2 * si ** 2) for x, ci, si in zip(grid, c, s)))
+        if profile == 'flat':
+            box, unit, occupancy = flat_cell(c, np.sqrt(2 * np.log(2)) * sigma_um[i], shape)
+            g = a * unit
+            sphere[box] = np.where((occupancy >= .5) & (sphere[box] < 0), i, sphere[box])
+        else:
+            lo = np.maximum(np.floor(c - 4 * s).astype(int), 0)
+            hi = np.minimum(np.ceil(c + 4 * s).astype(int) + 1, shape)
+            box = tuple(slice(l, h) for l, h in zip(lo, hi))
+            grid = np.ogrid[box]
+            g = a * np.exp(-sum((x - ci) ** 2 / (2 * si ** 2) for x, ci, si in zip(grid, c, s)))
         total[box] += g
         win = g > best[box]
         best[box] = np.where(win, g, best[box]); owner[box] = np.where(win, i, owner[box])
@@ -222,6 +252,8 @@ def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D, with_core=False):
     # Half-maximum footprint of each cell where it dominates: its true extent,
     # independent of brightness and of any detection threshold.
     core = np.where((owner >= 0) & (best >= .5 * amplitude[owner]), owner, -1)
+    if truth == 'sphere':
+        core = sphere
     texture = ndi.gaussian_filter(rng.normal(size=shape), (1, 1, .4))
     texture /= texture.std()
     clean = total * (1 + REGIMES[regime]['texture'] * texture)
@@ -338,14 +370,14 @@ def shape_variants():
     yield 'rel_img', .5, run
 
 
-def shape_benchmark(n_scenes, seed, only=None):
+def shape_benchmark(n_scenes, seed, only=None, profile='gaussian', truth='halfmax'):
     """Compare each detected cell's region with its half-maximum footprint (3D)."""
     rows = []
     for regime in REGIMES:
         rng = np.random.default_rng(seed)
         collected = {}
         for _ in range(n_scenes):
-            noisy, clean, amplitude, owner, core = scene3d(rng, regime, with_core=True)
+            noisy, clean, amplitude, owner, core = scene3d(rng, regime, with_core=True, profile=profile, truth=truth)
             peaks = (ndi.maximum_filter(clean, size=3) == clean) & (clean >= THRESHOLD)
             scorable = score(np.argwhere(peaks), owner, len(amplitude))[0] >= 1
             true = np.bincount(core[core >= 0], minlength=len(amplitude))
@@ -364,11 +396,13 @@ def shape_benchmark(n_scenes, seed, only=None):
                 cells = to_cell[labels]
                 size = np.bincount(cells[cells >= 0], minlength=len(amplitude))
                 both = np.bincount(cells[(cells >= 0) & (cells == core)], minlength=len(amplitude))
-                seeded = score(seeds, owner, len(amplitude))[0] >= 1
+                per_cell = score(seeds, owner, len(amplitude))[0]
+                seeded = per_cell >= 1
                 for band, lo, hi in BANDS:
                     sel = scorable & (true > 0) & (amplitude >= lo) & (amplitude < hi)
-                    c = collected.setdefault((name, value, band), dict(cells=0, lost=0, ratio=[], iou=[], empty=0, small=0))
+                    c = collected.setdefault((name, value, band), dict(cells=0, lost=0, extra=0, ratio=[], iou=[], empty=0, small=0))
                     c['cells'] += int(sel.sum())
+                    c['extra'] += int(np.maximum(per_cell[sel] - 1, 0).sum())
                     c['lost'] += int((sel & ~seeded).sum())
                     found = sel & seeded
                     c['empty'] += int((found & (size == 0)).sum())
@@ -378,6 +412,7 @@ def shape_benchmark(n_scenes, seed, only=None):
         for (name, value, band), c in collected.items():
             rows.append(dict(regime=regime, method=name, shape_threshold=value, band=band, cells=c['cells'],
                              lost_per_100=round(100 * c['lost'] / c['cells'], 2),
+                             extra_per_100=round(100 * c['extra'] / c['cells'], 2),
                              no_region_per_100=round(100 * c['empty'] / c['cells'], 2),
                              below_size_min_per_100=round(100 * c['small'] / c['cells'], 2),
                              median_size_ratio=round(float(np.median(c['ratio'])), 3),
@@ -435,6 +470,10 @@ def main():
     parser.add_argument('--corrected', action='store_true', help='Crop is already background-corrected')
     parser.add_argument('--dims', type=int, choices=[2, 3], default=2, help='Synthetic benchmark in 2D or anisotropic 3D')
     parser.add_argument('--shapes', action='store_true', help='3D shape-detection comparison instead of seeds')
+    parser.add_argument('--profile', choices=['gaussian', 'flat'], default='gaussian',
+                        help='3D cell profile for --shapes: Gaussian, or a blurred uniform sphere')
+    parser.add_argument('--truth', choices=['halfmax', 'sphere'], default='halfmax',
+                        help='Reference extent for --shapes; sphere needs --profile flat')
     parser.add_argument('--methods', nargs='+', help='Run only methods whose names start with these prefixes; '
                         'scenes depend only on --seed, so results stay comparable with a full run')
     args = parser.parse_args()
@@ -452,8 +491,11 @@ def main():
                                   bands=[b[:2] for b in BANDS], scenes_per_regime=args.scenes, seed=args.seed))
     if args.shapes:
         report['parameters'].update(voxel_xyz_um=VOXEL_UM.tolist(), volume=SHAPE_3D, cells_per_scene=CELLS_3D,
-                                    seed_dog_threshold=.75 * THRESHOLD * dog_gain((5, 5, 3)), size_min=SIZE_MIN)
-        report['shape_benchmark'] = shape_benchmark(args.scenes, args.seed, args.methods)
+                                    seed_dog_threshold=.75 * THRESHOLD * dog_gain((5, 5, 3)), size_min=SIZE_MIN,
+                                    profile=args.profile, truth=args.truth, psf_um=PSF_UM.tolist())
+        if args.truth == 'sphere' and args.profile != 'flat':
+            parser.error('--truth sphere needs --profile flat')
+        report['shape_benchmark'] = shape_benchmark(args.scenes, args.seed, args.methods, args.profile, args.truth)
     elif args.crop:
         if not args.region:
             parser.error('--crop needs --region')

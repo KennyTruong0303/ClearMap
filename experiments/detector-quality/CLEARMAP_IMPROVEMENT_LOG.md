@@ -175,6 +175,31 @@ Gaussian, for which a fraction of the peak is a fixed fraction of the radius
 at every brightness. Flat-topped or irregular real nuclei may behave
 differently; check on real 3D data.
 
+Flat-topped cells, 2026-11-02 (--shapes --profile flat; same random draws).
+Each cell is a uniform sphere, radius equal to the Gaussian's half width at half
+maximum (3.3-5.7 um), rendered with sub-voxel partial volume and blurred by a
+Gaussian point-spread function (sigma 1/1/2 um). --truth sphere scores against
+the unblurred sphere (voxels at least half inside), independent of any
+threshold. Size / true size dim / mid / bright, IoU dim / bright, additive
+16-step, sphere truth:
+- Absolute DoG 9.7: 0.91 / 1.54 / 2.15, IoU 0.78 / 0.46.
+- Relative 50% of own DoG peak: 0.64-0.67 in every band, IoU 0.63-0.65.
+  Still brightness-independent, but too tight; 25% gives 1.20-1.25 (IoU
+  0.79-0.80) and 75% leaves about 62% of cells under 5 voxels. The right DoG
+  fraction depends on the cell profile: 50% for Gaussian cells, nearer 25-35%
+  for flat ones.
+- Relative 50% of own image peak: 1.00 in every band, IoU 0.89-0.93 (texture
+  regime 0.94-0.96, IoU 0.84-0.86). For a blurred uniform object the edge sits
+  at half the interior intensity, so this cut finds the edge at any brightness.
+  For Gaussian cells it gave 1.15-1.24. It needs the background-corrected image
+  as well as the DoG.
+- Without a DoG, flat tops in 16-step data give 1.5-8.5 duplicate seeds per
+  100 cells even with a 5x5x3 window; with the DoG, none.
+- DoG seeds lose 2.1% of dim flat cells, against 1.1% of dim Gaussian cells.
+The relative cut removes the brightness bias for both profiles. If one cut is
+used, cut on the background-corrected image at 50% of each cell's own value;
+a DoG-based fraction must be calibrated on real nuclei.
+
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 
 Script challenge_shallow_dip.py; results and all six merge images:
