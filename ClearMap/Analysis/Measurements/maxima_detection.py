@@ -13,6 +13,8 @@ __copyright__ = 'Copyright © 2020 by Christoph Kirst'
 __webpage__ = 'https://idisco.info'
 __download__ = 'https://www.github.com/ChristophKirst/ClearMap2'
 
+from typing import Tuple
+
 import numpy as np
 
 import scipy.ndimage.measurements as ndm
@@ -202,7 +204,7 @@ def find_center_of_maxima(source, maxima=None, label=None, verbose=False):
 
     return centers
 
-def label_representatives(A:np.ndarray,eliminate_zero_label=True)->tuple[np.ndarray,...]:
+def label_representatives(A:np.ndarray,eliminate_zero_label=True)->Tuple[np.ndarray,...]:
     """Return the multi-index of one element per non empty labeled region.
         The 0 labeled region is ignored by default and can be included optionally.
 
