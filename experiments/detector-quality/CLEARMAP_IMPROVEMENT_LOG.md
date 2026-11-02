@@ -135,8 +135,26 @@ both on the DoG image, as Cells.detect_cells_block does with dog_filter on):
 - No false seeds at any threshold, but the scenes contain no objects fainter
   than 200 and no autofluorescence, so a low threshold is never penalised.
   The benchmark sets only an upper bound; choose the lower bound on real data,
-  starting near 10 and checking false detections. The shape-detection
-  threshold, also on the DoG output in ClearMap, was not tested here.
+  starting near 10 and checking false detections.
+
+Shape-detection threshold on the DoG output, 2026-11-02 (--shapes; 3D, 40
+scenes per regime, ~5,600 cells each). Seeds from dog_filter (5,5,3) with a
+5x5x3 window at DoG threshold 9.7; seeded watershed on the DoG output restricted
+to DoG > shape threshold, against the no-DoG pipeline (watershed on the image,
+mask > 168). Each found cell's region is compared with its half-maximum
+footprint, a brightness-independent true extent. Additive 16-step regime; the
+other two regimes agree within about one point:
+- No DoG: 16.6% of dim cells (<400) under 5 voxels; size / true size 0.64 dim,
+  4.58 bright (bright cells 7.2 times larger relative to their extent).
+- DoG shape threshold 3.2 / 6.4: no small cells; size ratio dim 2.33 / 1.37,
+  bright 4.41 / 3.58.
+- DoG shape threshold 9.7, equal to the seed threshold: 1.5% of dim cells under
+  5 voxels; ratio 0.83 dim, 3.00 bright; median IoU 0.72 dim, 0.33 bright.
+- DoG shape threshold 12.9, above the seed threshold: 5.0% of dim cells get no
+  region (their seed lies outside the mask) and 29.2% fall under 5 voxels.
+Set the shape threshold equal to, never above, the seed threshold. Measured size
+grows with brightness in every setting, so a size filter partly filters by
+brightness; a per-cell relative threshold might remove that, but is untested.
 
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 

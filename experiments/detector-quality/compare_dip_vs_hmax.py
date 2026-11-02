@@ -14,6 +14,7 @@ import sys
 
 import numpy as np
 from scipy import ndimage as ndi
+from skimage.segmentation import watershed
 
 ROOT = Path(__file__).resolve().parent
 try:
@@ -42,6 +43,8 @@ VOXEL_UM = np.array([2., 2., 5.])  # x, y, z; as in the BrainGlobe cellfinder sa
 SHAPE_3D = (96, 96, 24)  # voxels: 192 x 192 x 120 micrometres
 CELLS_3D = 150
 DOG_THRESHOLD_SCALES = [.5, .75, 1., 1.25, 1.5]  # multiples of the DoG threshold equivalent to 168
+SHAPE_THRESHOLD_SCALES = [.25, .5, .75, 1.]  # DoG shape-detection thresholds, same multiples
+SIZE_MIN = 5  # voxels; the lower size limit used in the demo-crop experiments
 # Noise regimes: additive sigma (intensity units), multiplicative texture amplitude and
 # intensity step. Every NEATmap value quoted in the review notes (304, 288, 400, 272, 32)
 # is a multiple of 16, as 12-bit data stored in 16 bits would be; background removal
@@ -192,7 +195,7 @@ def scene(rng, regime, size=128, n_cells=45):
     return noisy.T[:, :, None], clean.T[:, :, None], amplitude, owner.T[:, :, None]
 
 
-def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D):
+def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D, with_core=False):
     """Anisotropic 3D version of scene(): cells are round in micrometres, so they
     span about two to four 5-micrometre planes. Same amplitudes, texture and noise."""
     sigma = rng.uniform(2.8, 4.8, n_cells)[:, None] / VOXEL_UM  # 1.4-2.4 px in XY, as in 2D
@@ -215,6 +218,9 @@ def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D):
         win = g > best[box]
         best[box] = np.where(win, g, best[box]); owner[box] = np.where(win, i, owner[box])
     owner = np.where((owner >= 0) & (best >= .1 * amplitude[owner]), owner, -1)
+    # Half-maximum footprint of each cell where it dominates: its true extent,
+    # independent of brightness and of any detection threshold.
+    core = np.where((owner >= 0) & (best >= .5 * amplitude[owner]), owner, -1)
     texture = ndi.gaussian_filter(rng.normal(size=shape), (1, 1, .4))
     texture /= texture.std()
     clean = total * (1 + REGIMES[regime]['texture'] * texture)
@@ -222,6 +228,8 @@ def scene3d(rng, regime, shape=SHAPE_3D, n_cells=CELLS_3D):
     step = REGIMES[regime]['step']
     if step:
         noisy = np.maximum(np.floor(noisy / step) * step, 0)
+    if with_core:
+        return noisy, clean, amplitude, owner, core
     return noisy, clean, amplitude, owner
 
 
@@ -288,6 +296,62 @@ def benchmark(n_scenes, seed, dims=2, only=None):
     return rows
 
 
+def shape_variants():
+    """Shape detection as ClearMap runs it: a seeded watershed restricted to a
+    thresholded mask, on the image without dog_filter and on the DoG output with it."""
+    yield 'intensity', None, lambda image: (baseline_seeds(image, (5, 5, 3)), image, image > THRESHOLD)
+    t = THRESHOLD * dog_gain((5, 5, 3))
+    for scale in SHAPE_THRESHOLD_SCALES:
+        def run(image, scale=scale):
+            filtered = dog_filter(image, (5, 5, 3))
+            seeds = dog_threshold_seeds(image, (5, 5, 3), (5, 5, 3), .75 * t)
+            return seeds, filtered, filtered > scale * t
+        yield 'dog', round(scale * t, 1), run
+
+
+def shape_benchmark(n_scenes, seed):
+    """Compare each detected cell's region with its half-maximum footprint (3D)."""
+    rows = []
+    for regime in REGIMES:
+        rng = np.random.default_rng(seed)
+        collected = {}
+        for _ in range(n_scenes):
+            noisy, clean, amplitude, owner, core = scene3d(rng, regime, with_core=True)
+            peaks = (ndi.maximum_filter(clean, size=3) == clean) & (clean >= THRESHOLD)
+            scorable = score(np.argwhere(peaks), owner, len(amplitude))[0] >= 1
+            true = np.bincount(core[core >= 0], minlength=len(amplitude))
+            for name, value, run in shape_variants():
+                seeds, field, mask = run(noisy)
+                markers = np.zeros(noisy.shape, np.int32)
+                markers[tuple(seeds.T)] = np.arange(1, len(seeds) + 1)
+                labels = watershed(-field, markers, mask=mask)
+                # Map each region to the cell its seed sits on; a cell's region is
+                # the union of its seeds' regions.
+                to_cell = np.concatenate([[-1], owner[tuple(seeds.T)]]) if len(seeds) else np.array([-1])
+                cells = to_cell[labels]
+                size = np.bincount(cells[cells >= 0], minlength=len(amplitude))
+                both = np.bincount(cells[(cells >= 0) & (cells == core)], minlength=len(amplitude))
+                seeded = score(seeds, owner, len(amplitude))[0] >= 1
+                for band, lo, hi in BANDS:
+                    sel = scorable & (true > 0) & (amplitude >= lo) & (amplitude < hi)
+                    c = collected.setdefault((name, value, band), dict(cells=0, lost=0, ratio=[], iou=[], empty=0, small=0))
+                    c['cells'] += int(sel.sum())
+                    c['lost'] += int((sel & ~seeded).sum())
+                    found = sel & seeded
+                    c['empty'] += int((found & (size == 0)).sum())
+                    c['small'] += int((found & (size < SIZE_MIN)).sum())
+                    c['ratio'] += (size[found] / true[found]).tolist()
+                    c['iou'] += (both[found] / (size[found] + true[found] - both[found])).tolist()
+        for (name, value, band), c in collected.items():
+            rows.append(dict(regime=regime, method=name, shape_threshold=value, band=band, cells=c['cells'],
+                             lost_per_100=round(100 * c['lost'] / c['cells'], 2),
+                             no_region_per_100=round(100 * c['empty'] / c['cells'], 2),
+                             below_size_min_per_100=round(100 * c['small'] / c['cells'], 2),
+                             median_size_ratio=round(float(np.median(c['ratio'])), 3),
+                             median_iou=round(float(np.median(c['iou'])), 3)))
+    return rows
+
+
 def profiles():
     """Codex's synthetic and adversarial cases, with seeds supplied as Codex did."""
     cases = [('one_object_shallow_ripple', (9, 3, 1), (1, 1, 0), (7, 1, 0), 288, (304, 304), 1),
@@ -337,10 +401,11 @@ def main():
     parser.add_argument('--region', choices=list(REVIEWED), help='Which reviewed objects the crop holds')
     parser.add_argument('--corrected', action='store_true', help='Crop is already background-corrected')
     parser.add_argument('--dims', type=int, choices=[2, 3], default=2, help='Synthetic benchmark in 2D or anisotropic 3D')
+    parser.add_argument('--shapes', action='store_true', help='3D shape-detection comparison instead of seeds')
     parser.add_argument('--methods', nargs='+', help='Run only methods whose names start with these prefixes; '
                         'scenes depend only on --seed, so results stay comparable with a full run')
     args = parser.parse_args()
-    out = ROOT / 'test-data' / ('dip-vs-hmax-' + ('3d-' if args.dims == 3 else '') + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
+    out = ROOT / 'test-data' / ('dip-vs-hmax-' + ('shapes-' if args.shapes else '3d-' if args.dims == 3 else '') + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
     out.mkdir(parents=True, exist_ok=False)
 
     # The shipped h_max path drops the last maximum: two maxima in, one centre out.
@@ -352,7 +417,11 @@ def main():
                                                             '(5, 5, 3) 3D': THRESHOLD * dog_gain((5, 5, 3))},
                                   dog_threshold_scales=DOG_THRESHOLD_SCALES,
                                   bands=[b[:2] for b in BANDS], scenes_per_regime=args.scenes, seed=args.seed))
-    if args.crop:
+    if args.shapes:
+        report['parameters'].update(voxel_xyz_um=VOXEL_UM.tolist(), volume=SHAPE_3D, cells_per_scene=CELLS_3D,
+                                    seed_dog_threshold=.75 * THRESHOLD * dog_gain((5, 5, 3)), size_min=SIZE_MIN)
+        report['shape_benchmark'] = shape_benchmark(args.scenes, args.seed)
+    elif args.crop:
         if not args.region:
             parser.error('--crop needs --region')
         report['real_crop'] = real_crop(args.crop, args.region, args.corrected)
