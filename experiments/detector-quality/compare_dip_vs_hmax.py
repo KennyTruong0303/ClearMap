@@ -46,6 +46,7 @@ DOG_THRESHOLD_SCALES = [.5, .75, 1., 1.25, 1.5]  # multiples of the DoG threshol
 SHAPE_THRESHOLD_SCALES = [.25, .5, .75, 1.]  # DoG shape-detection thresholds, same multiples
 SIZE_MIN = 5  # voxels; the lower size limit used in the demo-crop experiments
 RELATIVE_FRACTIONS = [.25, .5, .75]
+REFERENCE_SIGMAS_UM = [1., 2.]  # smoothing of the image the 50% cut takes its reference value from
 PSF_UM = np.array([1., 1., 2.])  # Gaussian point-spread sigma for flat-topped cells, x, y, z
 SUPERSAMPLE = (4, 4, 8)  # sub-voxels per voxel when rendering a sphere's partial volume
 # Irregular nuclei: axis spread (log-normal sigma), outline lumpiness, chromatin texture
@@ -369,10 +370,11 @@ def benchmark(n_scenes, seed, dims=2, only=None):
     return rows
 
 
-def relative_cut(labels, seeds, field, fraction):
+def relative_cut(labels, seeds, field, fraction, reference=None):
     """Keep, in each seed's region, the voxels at or above fraction x the field's
-    value at that seed, and only the part connected to the seed."""
-    peak = np.concatenate([[np.inf], field[tuple(seeds.T)]])
+    value at that seed, and only the part connected to the seed. If given, the
+    value at the seed is read from reference instead (e.g. a smoothed image)."""
+    peak = np.concatenate([[np.inf], (field if reference is None else reference)[tuple(seeds.T)]])
     keep = (labels > 0) & (field >= fraction * peak[labels])
     components, _ = ndi.label(keep)
     at_seed = np.concatenate([[0], components[tuple(seeds.T)]])
@@ -408,6 +410,14 @@ def shape_variants():
         seeds = dog_threshold_seeds(image, (5, 5, 3), (5, 5, 3), .75 * t)
         return seeds, filtered, filtered > .25 * t, (.5, image)
     yield 'rel_img', .5, run
+    # The same 50% image cut with its reference value read from a smoothed image,
+    # so one bright texture voxel at the seed does not set the cut.
+    for sigma_um in REFERENCE_SIGMAS_UM:
+        def run(image, sigma_um=sigma_um):
+            filtered = dog_filter(image, (5, 5, 3))
+            seeds = dog_threshold_seeds(image, (5, 5, 3), (5, 5, 3), .75 * t)
+            return seeds, filtered, filtered > .25 * t, (.5, image, ndi.gaussian_filter(image, sigma_um / VOXEL_UM))
+        yield 'rel_img_smooth', sigma_um, run
 
 
 def shape_benchmark(n_scenes, seed, only=None, profile='gaussian', truth='halfmax'):
@@ -429,7 +439,7 @@ def shape_benchmark(n_scenes, seed, only=None, profile='gaussian', truth='halfma
                 markers[tuple(seeds.T)] = np.arange(1, len(seeds) + 1)
                 labels = watershed(-field, markers, mask=mask)
                 if cut:
-                    labels = relative_cut(labels, seeds, cut[1], cut[0])
+                    labels = relative_cut(labels, seeds, cut[1], cut[0], *cut[2:])
                 # Map each region to the cell its seed sits on; a cell's region is
                 # the union of its seeds' regions.
                 to_cell = np.concatenate([[-1], owner[tuple(seeds.T)]]) if len(seeds) else np.array([-1])
