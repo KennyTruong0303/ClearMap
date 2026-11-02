@@ -218,9 +218,23 @@ generator, so the main draws match the other profiles. Additive 16-step:
 Across Gaussian, flat and irregular cells, the 50% image cut stays within 0.9-1.24
 of true size and is brightness-independent; every absolute threshold makes
 bright cells about 2-4 times larger, relative to their true extent, than dim
-ones. A reference value less sensitive to texture than the single voxel at the
-seed (for example the smoothed image there) might reduce the undersizing;
-untested.
+ones.
+
+Smoothed reference for the 50% image cut, 2026-11-02 (rel_img_smooth; --methods
+rel_img on all three profiles, same scenes). The cut stays on the unsmoothed
+image; only each cell's reference value is read from the image smoothed by a
+Gaussian of 1 or 2 um. Size / true size dim-bright (IoU), additive 16-step:
+- Seed voxel (rel_img): Gaussian 1.21-1.24 (0.77-0.82), flat 1.00
+  (0.89-0.93), irregular 0.91-0.93 (0.77-0.80).
+- Smoothed 1 um: Gaussian 1.26-1.33 (0.75-0.76), flat 1.00 (0.89-0.93),
+  irregular 0.94-1.00 (0.78-0.81). Under strong texture: flat 0.94-0.96 -> 1.00,
+  irregular 0.89-0.90 -> 0.92-1.00. No cell under 5 voxels in any profile.
+- Smoothed 2 um: too low a reference; Gaussian 1.73-1.92, flat 1.22-1.28,
+  irregular 1.20-1.29.
+A 1 um smoothed reference removes the texture undersizing on nucleus-like cells
+at a small cost on Gaussian ones (about 0.05-0.1 larger). For nuclei, use 50% of
+each cell's value in the image smoothed by about 1 um, i.e. about half the
+point-spread width.
 
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 
