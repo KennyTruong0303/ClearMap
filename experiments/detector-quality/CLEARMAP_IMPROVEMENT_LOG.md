@@ -200,6 +200,28 @@ The relative cut removes the brightness bias for both profiles. If one cut is
 used, cut on the background-corrected image at 50% of each cell's own value;
 a DoG-based fraction must be calibrated on real nuclei.
 
+Irregular nuclei, 2026-11-02 (--shapes --profile irregular --truth sphere).
+Each flat-topped sphere becomes a randomly oriented ellipsoid of the same volume
+(axes vary by about 15%), with a lumpy outline (radius varies by about 12% with
+direction) and chromatin texture (intensity varies by about 25% at 1.5 um), then
+is blurred. Interior intensity averages about 0.6-0.8 of the cell's peak. The
+reference is the unblurred deformed shape. Extra randomness comes from a spawned
+generator, so the main draws match the other profiles. Additive 16-step:
+- Relative 50% of own image peak: 0.91 / 0.92 / 0.93, IoU 0.77-0.80 (texture
+  regime 0.89-0.90, IoU 0.75). Still brightness-independent; texture makes it
+  slightly small, because a textured cell's peak sits on a bright spot.
+- Relative 25% of own DoG peak: 1.23-1.32, IoU 0.71-0.72. 50%: 0.64-0.68,
+  IoU 0.61-0.65. 75%: 57-59% of cells under 5 voxels.
+- Absolute DoG 9.7: 0.83 / 1.50 / 2.12, IoU 0.70 / 0.47.
+- No DoG: 3.5-8.8 duplicate seeds per 100 cells and 14.7% of dim cells under
+  5 voxels; with the DoG, almost no duplicates (0.05 per 100).
+Across Gaussian, flat and irregular cells, the 50% image cut stays within 0.9-1.24
+of true size and is brightness-independent; every absolute threshold makes
+bright cells about 2-4 times larger, relative to their true extent, than dim
+ones. A reference value less sensitive to texture than the single voxel at the
+seed (for example the smoothed image there) might reduce the undersizing;
+untested.
+
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 
 Script challenge_shallow_dip.py; results and all six merge images:
