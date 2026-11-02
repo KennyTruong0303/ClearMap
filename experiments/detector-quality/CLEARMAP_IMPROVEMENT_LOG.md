@@ -381,3 +381,28 @@ installed here). Full detect_cells on two Gaussian blobs of 10x different
 brightness: absolute threshold 150 gives 189 and 1,654 voxels; relative_cut 0.5
 gives 205 and 205. On flat-topped balls, master's tied-plateau seeds (defect 1)
 still give dozens of seeds per ball; the relative cut does not fix that.
+
+### Upstream tied-plateau fix ported, 2026-11-02
+
+Cherry-picked upstream 33365efe (label_representatives in maxima_detection.py)
+and 7f681ddf (detect_cells_block labels the maxima mask with full 3x3x3
+connectivity and keeps one pixel per connected group when h_max is None), both
+by Gael Cousin, 2024-08-08; authorship kept, cherry-pick IDs recorded. A
+trivial end-of-file conflict in maxima_detection.py was resolved by appending
+the upstream function unchanged. A separate commit replaces the annotation
+tuple[np.ndarray, ...] with typing.Tuple: on Python 3.8 the upstream line makes
+importing maxima_detection fail ("'type' object is not subscriptable"), and
+master's environments pin Python 3.7. Verified on Python 3.8.20 before and
+after.
+
+Check: full detect_cells on two flat-topped balls (radius 6, blur 0.7, 10x
+apart in brightness) went from dozens of seeds per ball to one each. With
+relative_cut 0.5 both measure 919 voxels, their exact half-maximum volume;
+the absolute threshold gives 919 and 1,527. tests/analysis/test_maxima_detection.py
+adds 3 tests (also passing on Python 3.8).
+
+Side effect, as upstream: the kept pixel is the group's first in array order,
+not its centre, so a cell with a wide flat top is reported off-centre (2 voxels
+for these balls). Not ported: v3.1.x's later masking of maxima by the shape
+threshold and its other changes. Defects 2 and 3 (summed marker IDs, write
+race) remain on this branch.
