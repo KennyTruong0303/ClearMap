@@ -116,9 +116,27 @@ duplicate seeds per 100 cells / cells lost per 100:
   window, either kernel still gives about one extra seed per cell. Run with
   --methods dog_w5 baseline_w5; the baselines reproduce the full run exactly.
 In 3D, the window choice matters far more than any merge rule. dog_filter
-(5,5,3) with a 5x5x3 window needs no new code, only existing ClearMap settings;
-it still needs a threshold set on the DoG output. Losses depend on cell
-density, so check the window and kernel on real 3D data before choosing.
+(5,5,3) with a 5x5x3 window needs no new code, only existing ClearMap settings.
+Losses depend on cell density, so check the window and kernel on real 3D data
+before choosing.
+
+Threshold on the DoG output, 2026-11-02 (dog_thr methods; maxima and threshold
+both on the DoG image, as Cells.detect_cells_block does with dog_filter on):
+- DoG gain, the response at an isolated cell's centre per unit peak intensity:
+  kernel (5,5,3) 0.082 / 0.077 / 0.064 for cell sigma 2.8 / 3.8 / 4.8 um;
+  (7,7,1) in 2D 0.078 / 0.077 / 0.065. 168 x mid gain = 12.9 for both.
+- 3D, (5,5,3) kernel, 5x5x3 window, lost cells per 100 (no duplicates):
+  0.5x and 0.75x (9.7): 0.6-1.0; 1.0x (12.9): 2.1-2.7; 1.25x: 8.9-9.7;
+  1.5x: 17.6-18.3. At 1.0x, dim cells of the largest size fall below the
+  threshold (200 x 0.064 = 12.8), so match the threshold to the largest
+  expected cell (168 x 0.064 = 10.8) or set it lower.
+- 2D, (7,7,1) kernel, 11x11x1 window: 0.27-0.40 lost at 0.5-0.75x and
+  0.36-0.90 at 1.0x; 4-11 at 1.25-1.5x.
+- No false seeds at any threshold, but the scenes contain no objects fainter
+  than 200 and no autofluorescence, so a low threshold is never penalised.
+  The benchmark sets only an upper bound; choose the lower bound on real data,
+  starting near 10 and checking false detections. The shape-detection
+  threshold, also on the DoG output in ClearMap, was not tested here.
 
 ### Frozen-rule challenge on fresh examples, 2026-10-26
 

@@ -41,6 +41,7 @@ BANDS = [('dim', 0, 400), ('mid', 400, 800), ('bright', 800, np.inf)]
 VOXEL_UM = np.array([2., 2., 5.])  # x, y, z; as in the BrainGlobe cellfinder sample
 SHAPE_3D = (96, 96, 24)  # voxels: 192 x 192 x 120 micrometres
 CELLS_3D = 150
+DOG_THRESHOLD_SCALES = [.5, .75, 1., 1.25, 1.5]  # multiples of the DoG threshold equivalent to 168
 # Noise regimes: additive sigma (intensity units), multiplicative texture amplitude and
 # intensity step. Every NEATmap value quoted in the review notes (304, 288, 400, 272, 32)
 # is a multiple of 16, as 12-bit data stored in 16 bits would be; background removal
@@ -120,6 +121,26 @@ def filtered_seeds(image, filtered, shape=SHAPE):
     return np.argwhere(collapse_plateaus(filtered, mask))
 
 
+def dog_gain(kernel, sigma_um=3.8, dims=3):
+    """DoG response at the centre of an isolated cell of peak intensity 1.
+
+    THRESHOLD * dog_gain is the DoG threshold that keeps a mid-sized cell
+    (sigma 3.8 um) exactly at the intensity threshold."""
+    sigma = np.array([sigma_um / 2, sigma_um / 2, sigma_um / 5 if dims == 3 else 1e-3])
+    shape = (41, 41, 21 if dims == 3 else 1)
+    centre = tuple(n // 2 for n in shape)
+    grid = np.ogrid[tuple(slice(0, n) for n in shape)]
+    blob = np.exp(-sum((x - c) ** 2 / (2 * s ** 2) for x, c, s in zip(grid, centre, sigma)))
+    return float(dog_filter(blob, kernel)[centre])
+
+
+def dog_threshold_seeds(image, kernel, window, threshold):
+    """As Cells.detect_cells_block with dog_filter on: maxima and their threshold
+    are both taken on the DoG output."""
+    filtered = dog_filter(image, kernel)
+    return np.argwhere(collapse_plateaus(filtered, md.find_maxima(filtered, h_max=None, shape=window, threshold=threshold)))
+
+
 def tiebreak(image, sigma):
     """The image plus under 0.5 units of its smoothed self: exact ties are broken
     by the neighbourhood, and every other intensity order is kept."""
@@ -133,6 +154,9 @@ def methods():
         yield 'tiebreak', s, lambda image, s=s: filtered_seeds(image, tiebreak(image, s))
     for s in DOG_SHAPES:
         yield 'dog', s, lambda image, s=s: filtered_seeds(image, dog_filter(image, (s, s, 1)))
+    t = THRESHOLD * dog_gain((7, 7, 1), dims=2)
+    for scale in DOG_THRESHOLD_SCALES:
+        yield 'dog_thr', scale, lambda image, t=t * scale: dog_threshold_seeds(image, (7, 7, 1), SHAPE, t)
     for f in FRACTIONS[1:]:
         yield 'dip', f, lambda image, f=f: dip_seeds(image, f)
     for h in H_VALUES:
@@ -218,6 +242,9 @@ def methods3d():
     for k in (7, 5):
         for z in (1, 3):
             yield f'dog_w5_z{z}', k, lambda image, k=k, z=z: filtered_seeds(image, dog_filter(image, (k, k, 3)), (5, 5, z))
+    t = THRESHOLD * dog_gain((5, 5, 3))
+    for scale in DOG_THRESHOLD_SCALES:
+        yield 'dog_thr_w5_z3', scale, lambda image, t=t * scale: dog_threshold_seeds(image, (5, 5, 3), (5, 5, 3), t)
 
 
 def score(seeds, owner, n_cells):
@@ -321,6 +348,9 @@ def main():
     report = dict(shipped_hmax_centres_for_two_maxima=len(hmax_seeds(two, 17, as_shipped=True)),
                   fixed_hmax_centres_for_two_maxima=len(hmax_seeds(two, 17)),
                   parameters=dict(maxima_shape=SHAPE, threshold=THRESHOLD, regimes=REGIMES,
+                                  dog_threshold_equivalent={'(7, 7, 1) 2D': THRESHOLD * dog_gain((7, 7, 1), dims=2),
+                                                            '(5, 5, 3) 3D': THRESHOLD * dog_gain((5, 5, 3))},
+                                  dog_threshold_scales=DOG_THRESHOLD_SCALES,
                                   bands=[b[:2] for b in BANDS], scenes_per_regime=args.scenes, seed=args.seed))
     if args.crop:
         if not args.region:
