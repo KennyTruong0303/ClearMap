@@ -356,3 +356,28 @@ ClearMap improvement work belongs in ClearMap-work. All 261 moved file hashes
 were verified before path edits; see migration-original-hashes.json.
 The eventual target remains automation of the entire pipeline with a separate
 Astra QC review and human QC checkpoints, not detection-only automation.
+
+### Relative cut implemented in ClearMap shape detection, 2026-11-02
+
+ClearMap/Analysis/Measurements/shape_detection.py: detect_shape gains
+relative_cut, relative_cut_sigma and reference; new cut_relative trims object
+i + 1 to the pixels at or above relative_cut x the reference image's value at
+seed i (read from the reference smoothed by relative_cut_sigma pixels), keeps
+the part connected to the seed, and removes labels without a seed. Fractional
+seeds (h_max centres) are rounded. Cells.py: shape_detection defaults
+relative_cut=None and relative_cut_sigma=None (results unchanged), parameter
+docs added, and detect_cells_block passes the image before the DoG filter
+(after background correction and equalization) as the reference.
+
+Suggested settings from the synthetic benchmarks, to confirm on real data:
+relative_cut=0.5, relative_cut_sigma of about 1 um in pixels (0.5, 0.5, 0.2 at
+2 x 2 x 5 um voxels), and a low shape threshold (about a quarter of the maxima
+threshold) so the watershed does not cut cells short before the relative cut.
+The GUI config does not expose the new parameters.
+
+Checks: tests/analysis/test_shape_detection.py, 9 tests, pass with the real
+compiled voxelizer (graph IO module stubbed locally because graph_tool is not
+installed here). Full detect_cells on two Gaussian blobs of 10x different
+brightness: absolute threshold 150 gives 189 and 1,654 voxels; relative_cut 0.5
+gives 205 and 205. On flat-topped balls, master's tied-plateau seeds (defect 1)
+still give dozens of seeds per ball; the relative cut does not fix that.
