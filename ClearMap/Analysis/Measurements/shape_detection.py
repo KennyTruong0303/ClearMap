@@ -42,6 +42,59 @@ import ClearMap.Utils.HierarchicalDict as hdict
 ##############################################################################
 
 
+# version for python >=3.11
+# def labeled_pixels_from_centers(centers,weights,shape):
+#     """label the pixels specify by the centers with the weights.
+
+#     Parameters
+#     ----------
+#     centers : np.ndarray
+#         (n_points,dim) array with points coords, its dtype is the one of weights
+#     weights : np.ndarray
+#         (n_points,) shaped array
+#     shape : tuple
+#         the shape of the output array.
+#     """
+
+#     if centers.shape[0]!=weights.shape[0]:
+#         raise ValueError("The number of weights must equal the number of points.")
+    
+#     if len(shape)!=centers.shape[1]:
+#         raise ValueError("Received shape, points with points.shape[1] != len(shape) ")
+    
+#     B = np.zeros(shape,dtype = weights.dtype)
+#     transposed = centers.transpose()
+#     B[*(transposed)]=weights
+#     return B
+
+
+def labeled_pixels_from_centers(centers,weights,shape):
+    """label the pixels specify by the centers with the weights.
+
+    This is restricted to 3d shapes for now, a code that will work with python >=3.11
+    is commented out for now
+
+    Parameters
+    ----------
+    centers : np.ndarray
+        (n_points,dim) array with points coords, its dtype is the one of weights
+    weights : np.ndarray
+        (n_points,) shaped array
+    shape : tuple
+        the shape of the output array.
+    """
+
+    if centers.shape[0]!=weights.shape[0]:
+        raise ValueError("The number of weights must equal the number of points.")
+    
+    if len(shape)!=centers.shape[1]:
+        raise ValueError("Received shape, points with points.shape[1] != len(shape) ")
+    
+    B = np.zeros(shape,dtype = weights.dtype)
+    xs,ys,zs = centers.transpose()
+    B[xs,ys,zs]=weights
+    return B
+
 def detect_shape(source, seeds, threshold=None, verbose=False, processes=None,
                  relative_cut=None, relative_cut_sigma=None, reference=None):
     """
@@ -85,7 +138,7 @@ def detect_shape(source, seeds, threshold=None, verbose=False, processes=None,
 
     mask = None if threshold is None else source > threshold
 
-    peaks = vox.voxelize(seeds, shape=source.shape, weights=np.arange(1, seeds.shape[0]+1), processes=processes).array
+    peaks = labeled_pixels_from_centers(seeds,np.arange(1, seeds.shape[0]+1), source.shape)
     try:
         shapes = skimage.morphology.watershed(-source, peaks, mask=mask)
     except AttributeError:
