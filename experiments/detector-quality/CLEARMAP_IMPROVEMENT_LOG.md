@@ -475,9 +475,9 @@ or corners got several centers. Now it labels with full 3^n connectivity, as
 detect_cells_block does for maxima without h_max. Not an upstream fix; upstream
 still labels face-only.
 
-Two new tests in test_maxima_detection.py failed before the change: three
-corner-joined pixels gave 3 centers, and a ridge stepping diagonally under
-h_max gave 7, where each should give 1. 27 tests pass; the h_max pipeline check
+Two new tests in test_maxima_detection.py failed before the change: a
+three-pixel maximum joined at a corner gave 2 centers, and a ridge stepping
+diagonally under h_max gave 7, where each should give 1. 27 tests pass; the h_max pipeline check
 is unchanged (189 and 1,654 voxels). In the synthetic benchmark (continuous,
 h=17), face-only labelling added 1.4 duplicate seeds per 100 cells and full
 labelling none, with lost cells unchanged at 0.74 per 100.
