@@ -466,3 +466,21 @@ Still open, on master and upstream alike: face-only labelling in
 find_center_of_maxima splits flattened plateaus that touch diagonally, and the
 11x11 window rejects a lowered peak next to a brighter neighbour's unchanged
 slope.
+
+### Full connectivity in find_center_of_maxima, 2026-11-03
+
+find_center_of_maxima labelled maxima with face connectivity only, so a peak
+flattened by the h-max transform into a plateau touching itself only at edges
+or corners got several centers. Now it labels with full 3^n connectivity, as
+detect_cells_block does for maxima without h_max. Not an upstream fix; upstream
+still labels face-only.
+
+Two new tests in test_maxima_detection.py failed before the change: three
+corner-joined pixels gave 3 centers, and a ridge stepping diagonally under
+h_max gave 7, where each should give 1. 27 tests pass; the h_max pipeline check
+is unchanged (189 and 1,654 voxels). In the synthetic benchmark (continuous,
+h=17), face-only labelling added 1.4 duplicate seeds per 100 cells and full
+labelling none, with lost cells unchanged at 0.74 per 100.
+
+Remaining h_max issue: the 11x11 window rejects a dim cell's lowered peak
+next to a brighter neighbour's unchanged slope.
