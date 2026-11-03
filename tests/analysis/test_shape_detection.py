@@ -33,11 +33,11 @@ def test_cut_relative_removes_labels_without_seed():
     assert cut.ravel().tolist() == [1, 1, 0, 0]
 
 
-def test_cut_relative_rounds_fractional_seeds():
+def test_cut_relative_truncates_fractional_seeds_like_the_markers():
     image = np.array([0, 2, 4, 8, 4, 2, 0], dtype=float)[:, None, None]
     label = np.ones((7, 1, 1), dtype=int)
     exact = shape_detection.cut_relative(label, np.array([[3, 0, 0]]), image, .5)
-    fractional = shape_detection.cut_relative(label, np.array([[3.2, 0, 0]]), image, .5)
+    fractional = shape_detection.cut_relative(label, np.array([[3.7, 0, 0]]), image, .5)
     assert np.array_equal(exact, fractional)
 
 
@@ -81,6 +81,37 @@ def test_detect_shape_relative_cut_trims_the_reference_image():
     seeds = np.array([[12, 12, 12]])
     shapes = shape_detection.detect_shape(flat, seeds, threshold=0, relative_cut=.5, reference=image)
     assert np.array_equal(shapes == 1, image >= .5 * image.max())
+
+
+def test_detect_shape_adjacent_seeds_keep_their_own_labels():
+    # Seeds as radius-1 spheres weighted by ID summed 1 + 2 into a false label 3.
+    image = np.ones((6, 6, 3))
+    seeds = np.array([[2, 2, 1], [2, 3, 1]])
+    shapes = shape_detection.detect_shape(image, seeds, threshold=0)
+    assert set(np.unique(shapes)) == {1, 2}
+    assert shapes[2, 2, 1] == 1 and shapes[2, 3, 1] == 2
+
+
+def test_detect_shape_close_seeds_do_not_take_another_seeds_label():
+    # Seeds 1 and 2 two pixels apart used to write 1 + 2 = 3 between them,
+    # colliding with the real seed 3.
+    image = np.ones((9, 9, 3))
+    seeds = np.array([[2, 2, 1], [2, 4, 1], [6, 6, 1]])
+    peaks = shape_detection.labeled_pixels_from_centers(seeds, np.arange(1, 4), image.shape)
+    assert np.flatnonzero(peaks).size == 3
+    assert [peaks[tuple(p)] for p in seeds] == [1, 2, 3]
+
+
+def test_detect_shape_accepts_fractional_seeds():
+    image, _ = blurred_ball((24, 24, 24), (12, 12, 12), 5, 500)
+    exact = shape_detection.detect_shape(image, np.array([[12, 12, 12]]), threshold=50, relative_cut=.5)
+    fractional = shape_detection.detect_shape(image, np.array([[12.6, 12.4, 12.9]]), threshold=50, relative_cut=.5)
+    assert np.array_equal(exact, fractional)
+
+
+def test_labeled_pixels_from_centers_works_in_two_dimensions():
+    peaks = shape_detection.labeled_pixels_from_centers(np.array([[1, 2], [3, 0]]), np.array([5, 7]), (4, 4))
+    assert peaks[1, 2] == 5 and peaks[3, 0] == 7 and np.count_nonzero(peaks) == 2
 
 
 def test_detect_shape_unchanged_without_relative_cut():

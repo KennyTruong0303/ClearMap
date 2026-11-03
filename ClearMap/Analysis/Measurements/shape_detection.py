@@ -42,37 +42,8 @@ import ClearMap.Utils.HierarchicalDict as hdict
 ##############################################################################
 
 
-# version for python >=3.11
-# def labeled_pixels_from_centers(centers,weights,shape):
-#     """label the pixels specify by the centers with the weights.
-
-#     Parameters
-#     ----------
-#     centers : np.ndarray
-#         (n_points,dim) array with points coords, its dtype is the one of weights
-#     weights : np.ndarray
-#         (n_points,) shaped array
-#     shape : tuple
-#         the shape of the output array.
-#     """
-
-#     if centers.shape[0]!=weights.shape[0]:
-#         raise ValueError("The number of weights must equal the number of points.")
-    
-#     if len(shape)!=centers.shape[1]:
-#         raise ValueError("Received shape, points with points.shape[1] != len(shape) ")
-    
-#     B = np.zeros(shape,dtype = weights.dtype)
-#     transposed = centers.transpose()
-#     B[*(transposed)]=weights
-#     return B
-
-
 def labeled_pixels_from_centers(centers,weights,shape):
     """label the pixels specify by the centers with the weights.
-
-    This is restricted to 3d shapes for now, a code that will work with python >=3.11
-    is commented out for now
 
     Parameters
     ----------
@@ -91,9 +62,32 @@ def labeled_pixels_from_centers(centers,weights,shape):
         raise ValueError("Received shape, points with points.shape[1] != len(shape) ")
     
     B = np.zeros(shape,dtype = weights.dtype)
-    xs,ys,zs = centers.transpose()
-    B[xs,ys,zs]=weights
+    B[tuple(np.asarray(centers).T)]=weights
     return B
+
+
+def seed_pixels(seeds):
+    """
+    Integer pixel coordinates of seeds.
+
+    Fractional coordinates, such as h_max centres of mass, are truncated, as the
+    voxelizer previously used for the seeds did.
+
+    Arguments
+    ---------
+    seeds : array
+        Seed coordinates, one row per seed.
+
+    Returns
+    -------
+    pixels : array
+        Integer seed coordinates.
+    """
+    points = np.asarray(seeds)
+    if not np.issubdtype(points.dtype, np.integer):
+        points = np.trunc(points).astype(int)
+    return points
+
 
 def detect_shape(source, seeds, threshold=None, verbose=False, processes=None,
                  relative_cut=None, relative_cut_sigma=None, reference=None):
@@ -138,7 +132,8 @@ def detect_shape(source, seeds, threshold=None, verbose=False, processes=None,
 
     mask = None if threshold is None else source > threshold
 
-    peaks = labeled_pixels_from_centers(seeds,np.arange(1, seeds.shape[0]+1), source.shape)
+    points = seed_pixels(seeds.array)
+    peaks = labeled_pixels_from_centers(points,np.arange(1, points.shape[0]+1), source.shape)
     try:
         shapes = skimage.morphology.watershed(-source, peaks, mask=mask)
     except AttributeError:
@@ -148,7 +143,7 @@ def detect_shape(source, seeds, threshold=None, verbose=False, processes=None,
 
     if relative_cut is not None:
         reference = source if reference is None else io.as_source(reference).array
-        shapes = cut_relative(shapes, seeds.array, reference, relative_cut, sigma=relative_cut_sigma)
+        shapes = cut_relative(shapes, points, reference, relative_cut, sigma=relative_cut_sigma)
 
     if verbose:
         timer.print_elapsed_time('Shape detection')
@@ -192,7 +187,7 @@ def cut_relative(label, seeds, image, fraction, sigma=None):
     n_seeds = len(points)
     if n_seeds == 0:
         return np.zeros_like(label)
-    points = np.clip(np.round(points).astype(int), 0, np.array(image.shape) - 1)
+    points = np.clip(seed_pixels(points), 0, np.array(image.shape) - 1)
 
     smoothed = image if sigma is None else scipy.ndimage.gaussian_filter(image.astype(float), sigma)
     level = np.full(max(int(label.max()), n_seeds) + 1, np.inf)
