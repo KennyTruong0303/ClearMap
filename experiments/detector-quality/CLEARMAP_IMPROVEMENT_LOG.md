@@ -484,3 +484,32 @@ labelling none, with lost cells unchanged at 0.74 per 100.
 
 Remaining h_max issue: the 11x11 window rejects a dim cell's lowered peak
 next to a brighter neighbour's unchanged slope.
+
+### h_max window fixed, 2026-11-03
+
+With h_max, find_maxima applied the window to the h-max transform, which lowers
+each peak by h_max but leaves the slopes around it, so a dim cell's lowered peak
+under a brighter neighbour's slope was lost. New local_max_of_peaks keeps a pixel
+if it lies on a regional maximum of the transform (skimage local_maxima, full
+connectivity) and no other regional maximum in the window is higher. The window
+still keeps one maximum per window; the path without h_max is unchanged.
+
+Tests: one fails before the fix (a dim cell, peak 250, beside a brighter slope of
+240 in its window: kept without h_max, lost with h_max=20); one checks the window
+still drops the lower of two close peaks. 29 tests pass; 15 maxima tests also on
+Python 3.8; local_maxima works the same on scikit-image 0.18.3. The h_max
+pipeline check is unchanged.
+
+Benchmark, h=17, duplicate seeds / cells lost per 100 cells, before -> after:
+- 2D, 11x11 window: additive 16-step 0.00/0.60 -> 0.00/0.14, texture
+  0.04/0.91 -> 0.03/0.27, continuous 0.00/0.74 -> 0.00/0.26. Now the lowest
+  losses of every 2D method (baseline 0.38/0.30/0.88; dip 10% 0.38/0.31/0.88;
+  dog_filter 7 0.36/0.83/0.32). It also loses fewer than the baseline because
+  peaks are no longer compared with any slope.
+- 3D, additive / texture / continuous:
+  11x11x1: 0.28/7.09 -> 0.00/4.13, 1.79/6.81 -> 0.07/4.26, 0.32/6.55 -> 0.02/3.48.
+  11x11x3: 0.00/17.63 -> 0.00/8.07, 0.02/18.10 -> 0.02/8.49, 0.00/17.88 -> 0.02/7.84.
+  5x5x1: 0.14/2.59 -> 0.00/2.66, 1.93/2.23 -> 0.11/2.72, 0.27/1.81 -> 0.00/1.91.
+  Regional maxima are 3D, so even a per-plane window gives no per-plane
+  duplicates (baseline 5x5x1: 123 per 100). dog_filter (5,5,3) with a 5x5x3
+  window and DoG threshold 9.7 remains the best 3D setting (0 / 0.6-1.0).
