@@ -434,3 +434,35 @@ v3.1.x-experimental, not ported). With that one-line fix applied in memory,
 h_max runs through shape detection, but finds one of two blobs:
 find_center_of_maxima still drops the last maximum (also fixed only on
 v3.1.x-experimental).
+
+### Upstream h_max fixes ported, 2026-11-03
+
+Ported four upstream commits by Charly Rousseau (2026-10-22, v3.1.x-experimental),
+authorship and cherry-pick IDs kept:
+- b3728b2a: grey reconstruction calls scikit-image's reconstruction directly.
+  master imported a private module removed in scikit-image 0.20, and its
+  environments do not pin scikit-image, so h_max failed on any recent install.
+  Applied by hand: master still has the file as GreyReconstruction.py, in an
+  older form.
+- 914aa527: find_center_of_maxima gives every maximum its centre (it passed
+  np.arange(1, n_label) and dropped the last).
+- d0b75e0a: h_max_transform works in float for integer images, so uint16
+  source - h_max no longer wraps around and raises.
+- 7fbc49ee (#46): detect_cells_block passes the block's array, not the block,
+  to find_center_of_maxima, so the h_max path no longer crashes.
+Test conflicts were resolved by keeping both sides.
+
+Follow-up commit: reconstruct passes footprint= on scikit-image 0.19 and later and
+selem= before (upstream's call fails on 0.18.3; verified on 0.18.3 and 0.26.0),
+and upstream's h_max cell-detection test reads master's tuple result.
+
+Checks: 25 tests pass across test_maxima_detection.py, test_shape_detection.py
+and test_cell_detection_with_h_max.py. A full detect_cells with h_max on a
+uint16 image with zero background now finds both blobs (189 and 1,654 voxels);
+before these ports it crashed. compare_dip_vs_hmax.py's report of the shipped
+h_max centres now reflects the fixed code.
+
+Still open, on master and upstream alike: face-only labelling in
+find_center_of_maxima splits flattened plateaus that touch diagonally, and the
+11x11 window rejects a lowered peak next to a brighter neighbour's unchanged
+slope.
