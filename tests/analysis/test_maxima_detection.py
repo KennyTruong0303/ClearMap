@@ -99,6 +99,37 @@ def test_a_flattened_peak_with_diagonal_steps_gives_one_center_with_h_max():
     assert len(maxima_detection.find_center_of_maxima(image, maxima=maxima)) == 1
 
 
+def _dim_cell_beside_a_brighter_slope():
+    """A dim cell (peak 250) whose window holds a brighter cell's slope (240) but not its peak"""
+    grid = np.indices((31, 9, 9)).astype(float)
+    def blob(center, amplitude, sigma):
+        return amplitude * np.exp(-sum((g - c) ** 2 for g, c in zip(grid, center)) / (2 * sigma ** 2))
+    return blob((4, 4, 4), 739, 2) + blob((12, 4, 4), 250, 1.5)
+
+
+def test_h_max_keeps_a_dim_cell_whose_window_holds_a_brighter_slope():
+    image = _dim_cell_beside_a_brighter_slope()
+    assert 235 < image[7, 4, 4] < 245  # The bright slope, in the dim cell's window, under the dim peak
+
+    without = maxima_detection.find_maxima(image, h_max=None, shape=11, threshold=100)
+    with_h_max = maxima_detection.find_maxima(image, h_max=20, shape=11, threshold=100)
+
+    # h_max lowers the dim peak to about 230, under the slope; it must still be a maximum
+    assert without[12, 4, 4] and without[4, 4, 4]
+    assert with_h_max[12, 4, 4] and with_h_max[4, 4, 4]
+
+
+def test_h_max_window_still_keeps_only_the_higher_of_two_close_peaks():
+    grid = np.indices((21, 9, 9)).astype(float)
+    image = sum(a * np.exp(-sum((g - c) ** 2 for g, c in zip(grid, center)) / 2)
+                for center, a in [((7, 4, 4), 1000), ((11, 4, 4), 600)])  # Both well above h_max, 4 apart
+
+    maxima = maxima_detection.find_maxima(image, h_max=20, shape=11, threshold=100)
+
+    assert maxima[7, 4, 4] and not maxima[11, 4, 4]
+    assert maxima_detection.find_maxima(image, h_max=20, shape=5, threshold=100)[11, 4, 4]
+
+
 def test_label_representatives_gives_one_pixel_per_label():
     labels = np.zeros((6, 6, 4), dtype=int)
     labels[1:3, 1:3, 1:3] = 1  # a flat 2x2x2 maximum

@@ -20,6 +20,8 @@ import numpy as np
 import scipy.ndimage.measurements as ndm
 import scipy.ndimage.filters as ndf
 
+import skimage.morphology
+
 import ClearMap.ImageProcessing.GreyReconstruction as gr
 
 import ClearMap.Utils.Timer as tmr
@@ -77,7 +79,40 @@ def local_max(source, shape=5):
         shape = (shape,) * source.ndim
 
     return ndf.maximum_filter(source, size=shape) == source
-    
+
+
+def local_max_of_peaks(source, shape=5):
+    """
+    Calculates the local maxima among the peaks of an image
+
+    A peak is a regional maximum: a plateau that no higher pixel touches. A
+    pixel is kept if it lies on a peak and no other peak within the window is
+    higher. Unlike :func:`local_max`, a peak is compared with other peaks only,
+    not with the slopes of brighter neighbours.
+
+    Arguments
+    ---------
+    source : array
+        Input image, e.g. an h-max transformed image.
+    shape : int, tuple or None
+        Shape of the volume to search for maxima. If None, keep all peaks.
+
+    Returns
+    -------
+    local_max : array
+        Mask that is True at the local maxima among the peaks.
+    """
+    peaks = skimage.morphology.local_maxima(source, connectivity=source.ndim, allow_borders=True).astype(bool)
+
+    if shape is None:
+        return peaks
+
+    if not isinstance(shape, tuple):
+        shape = (shape,) * source.ndim
+
+    tops = np.where(peaks, source, -np.inf)
+    return peaks & (ndf.maximum_filter(tops, size=shape) == tops)
+
 
 def extended_max(source, h_max=0):
     """
@@ -138,11 +173,12 @@ def find_maxima(source, h_max=None, shape=5, threshold=None, verbose=None):
     Notes
     -----
     This routine performs a h-max transform, followed by a local maxima search
-    and thresholding of the maxima.
+    and thresholding of the maxima. With h_max, the local maxima are searched
+    among the peaks of the transform only (:func:`local_max_of_peaks`).
 
     See also
     --------
-    :func:`h_max_transform`, :func:`local_max`
+    :func:`h_max_transform`, :func:`local_max`, :func:`local_max_of_peaks`
     """
     if verbose:
         timer = tmr.Timer()
@@ -152,7 +188,12 @@ def find_maxima(source, h_max=None, shape=5, threshold=None, verbose=None):
     maxima = h_max_transform(source, h_max=h_max)
 
     # local maxima
-    maxima = local_max(maxima, shape=shape)
+    if h_max:
+        # The h-max transform lowers each peak by h_max but leaves the slopes around it: in a window, a dim
+        # peak lowered under a brighter neighbour's slope was lost. Compare the peaks with each other only.
+        maxima = local_max_of_peaks(maxima, shape=shape)
+    else:
+        maxima = local_max(maxima, shape=shape)
 
     # thresholding
     if threshold is not None:
