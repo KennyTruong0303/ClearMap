@@ -176,7 +176,8 @@ def find_center_of_maxima(source, maxima=None, label=None, verbose=False):
         Binary array indicating the maxima. If label is not None this can be None.
     label : array or None
         Labeled image of the shapes of the maxima.
-        If None, determined from maxima.
+        If None, determined from maxima, joining pixels that touch at faces,
+        edges or corners, so a flattened maximum gets one center.
     verbose : bool
         Print progress info.
 
@@ -191,7 +192,9 @@ def find_center_of_maxima(source, maxima=None, label=None, verbose=False):
 
     # center of maxima
     if label is None:
-        label, n_label = ndm.label(maxima)
+        # Full connectivity, as for the maxima without h_max in Cells.detect_cells_block:
+        # with face connectivity only, a flattened maximum touching itself diagonally got several centers
+        label, n_label = ndm.label(maxima, structure=np.ones((3,) * np.ndim(maxima), dtype=bool))
     else:
         n_label = label.max()
 

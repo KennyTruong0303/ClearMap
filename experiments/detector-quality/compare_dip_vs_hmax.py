@@ -100,10 +100,11 @@ def dip_seeds(image, fraction, shape=SHAPE):
 def hmax_seeds(image, h, as_shipped=False, full_connectivity=False, shape=SHAPE):
     """Cells.detect_cells_block's h_max path: h-max maxima, label, centre of mass.
 
-    as_shipped=True uses md.find_center_of_maxima unchanged, which passes
-    np.arange(1, n_label) and so drops the last label. Default counts every label.
-    find_center_of_maxima labels with face connectivity, which splits flattened
-    plateaus that touch only diagonally; full_connectivity=True labels with 3^n.
+    as_shipped=True uses md.find_center_of_maxima on these labels. It used to pass
+    np.arange(1, n_label) and so drop the last label (fixed by the 914aa527 port).
+    The default labelling here is face-only, as find_center_of_maxima's was
+    before it moved to full connectivity, so the benchmark keeps measuring the
+    old behaviour; full_connectivity=True labels with 3^n, as it does now.
     """
     structure = np.ones((3,) * image.ndim) if full_connectivity else None
     labels, n = ndi.label(md.find_maxima(image, h_max=h, shape=shape, threshold=THRESHOLD), structure=structure)

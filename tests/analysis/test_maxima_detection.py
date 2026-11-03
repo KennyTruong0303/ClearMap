@@ -78,6 +78,27 @@ def test_every_maximum_gets_its_center():
     np.testing.assert_array_equal(centers, [[2, 2, 2], [7, 7, 7]])
 
 
+def test_a_maximum_touching_itself_only_diagonally_gets_one_center():
+    maxima = np.zeros((10, 10, 10), dtype=bool)
+    maxima[4, 4, 4] = maxima[5, 5, 4] = maxima[5, 5, 5] = True  # one flattened top, joined only at corners
+
+    centers = maxima_detection.find_center_of_maxima(maxima.astype(float), maxima=maxima)
+
+    np.testing.assert_allclose(centers, [[14 / 3, 14 / 3, 13 / 3]])
+
+
+def test_a_flattened_peak_with_diagonal_steps_gives_one_center_with_h_max():
+    # A ridge one pixel wide that steps diagonally: h_max flattens it into one
+    # plateau whose pixels touch only at their edges.
+    image = np.zeros((12, 12, 3))
+    for i in range(2, 9):
+        image[i, i, 1] = 500
+    image[5, 5, 1] = 510
+    maxima = maxima_detection.find_maxima(image, h_max=20, shape=3, threshold=100)
+
+    assert len(maxima_detection.find_center_of_maxima(image, maxima=maxima)) == 1
+
+
 def test_label_representatives_gives_one_pixel_per_label():
     labels = np.zeros((6, 6, 4), dtype=int)
     labels[1:3, 1:3, 1:3] = 1  # a flat 2x2x2 maximum
