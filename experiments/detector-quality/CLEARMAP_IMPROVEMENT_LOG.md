@@ -406,3 +406,31 @@ not its centre, so a cell with a wide flat top is reported off-centre (2 voxels
 for these balls). Not ported: v3.1.x's later masking of maxima by the shape
 threshold and its other changes. Defects 2 and 3 (summed marker IDs, write
 race) remain on this branch.
+
+### Upstream direct-marker fix ported, 2026-11-03
+
+Ported upstream 2fcaad7e and 7a849f6d (Gael Cousin, 2024-09-09) as one commit
+with his authorship: 2fcaad7e alone leaves detect_shape with an unfinished line
+("peaks = "). detect_shape now writes each seed's label at its own pixel with
+labeled_pixels_from_centers instead of voxelizing radius-1 spheres weighted by
+seed ID. This fixes defects 2 and 3: summed IDs (adjacent seeds 1 and 2 used to
+give both seed pixels a false label 3) and the parallel write race, since the
+voxelizer is no longer used for markers.
+
+Follow-up commit: labeled_pixels_from_centers raised IndexError on fractional
+seeds (h_max centres of mass), which the old voxelizer truncated with a C cast.
+New seed_pixels truncates the same way and is used for both the markers and
+the relative cut (cut_relative rounded before, which could read a different
+pixel than the marker). Indexing with tuple(centers.T) replaces upstream's
+3D-only unpacking and works in any dimension on Python 3.7.
+
+Checks: 16 tests pass (4 new). Pipeline runs on Gaussian blobs and
+flat-topped balls give exactly the same results as before the port.
+
+Found while testing: master's h_max path still fails before shape detection,
+because detect_cells_block passes the block, not its array, to
+find_center_of_maxima (upstream issue #46, fixed in 7fbc49ee on
+v3.1.x-experimental, not ported). With that one-line fix applied in memory,
+h_max runs through shape detection, but finds one of two blobs:
+find_center_of_maxima still drops the last maximum (also fixed only on
+v3.1.x-experimental).
