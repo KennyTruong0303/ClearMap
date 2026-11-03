@@ -22,4 +22,5 @@ def test_the_cells_of_a_block_are_found_with_an_h_max_transform():
     cells = Cells.detect_cells_block(block.Block(source=clearmap_io.as_source(image), slicing=ALL, valid_slicing=ALL),
                                      parameter=parameter, n_threads=1)
 
-    np.testing.assert_array_equal(np.sort(cells[['x', 'y', 'z']].to_numpy(), axis=0), [[4, 4, 4], [11, 11, 11]])
+    centers = cells[0]  # master's detect_cells_block returns a tuple of arrays, centers first
+    np.testing.assert_array_equal(np.sort(centers, axis=0), [[4, 4, 4], [11, 11, 11]])

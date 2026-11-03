@@ -17,9 +17,14 @@ __webpage__   = 'http://idisco.info'
 __download__  = 'http://www.github.com/ChristophKirst/ClearMap2'
 
 
+import inspect
+
 import numpy as np
 
 from skimage.morphology import reconstruction
+
+# scikit-image 0.19 renamed reconstruction's selem argument to footprint
+_footprint = 'footprint' if 'footprint' in inspect.signature(reconstruction).parameters else 'selem'
 
 
 import ClearMap.ImageProcessing.Filter.StructureElement as se
@@ -79,7 +84,7 @@ def reconstruct(seed, mask = None, method = 'dilation', selem = None, offset = N
   # Changed from original version made for skimage 0.16 which only kept the type of the seed instead of float64,
   # to save memory: scikit-image now keeps float32 as float32 itself (same results, time and memory),
   # and computes integer images in float64. The result is given back in the type of the seed, as the copy did
-  return reconstruction(seed, mask, method=method, footprint=selem, offset=offset).astype(seed.dtype, copy=False)
+  return reconstruction(seed, mask, method=method, offset=offset, **{_footprint: selem}).astype(seed.dtype, copy=False)
 
 
 def grey_reconstruct(source, mask = None, sink = None, method = None, shape = 3, verbose = False):
