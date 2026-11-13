@@ -23,6 +23,7 @@ import gc
 
 import cv2
 import scipy.ndimage.filters as ndf
+import scipy.ndimage as ndi
 
 import ClearMap.IO.IO as clearmap_io
 
@@ -71,6 +72,8 @@ default_cell_detection_parameter = dict(
 
     # cell shape detection
     shape_detection=dict(threshold=700,
+                         relative_cut=None,
+                         relative_cut_sigma=None,
                          save=False),
 
     # cell intensity detection
@@ -265,6 +268,17 @@ def detect_cells(source, sink=None, cell_detection_parameter=default_cell_detect
             Cell shape is expanded from maxima if pixels are above this threshold
             and not closer to another maxima.
 
+        relative_cut : float or None
+            If not None, trim each cell to the pixels of the image before the
+            DoG filter that are at or above this fraction of the cell's own
+            value, so cell size no longer grows with brightness. 0.5 finds the
+            edge of a blurred nucleus. Use a low threshold with it.
+
+        relative_cut_sigma : float, tuple or None
+            Gaussian sigma in pixels to smooth the image the cell's value is
+            read from, so a single bright pixel does not set the cut. About half
+            the point spread width.
+
         save : str or None
           Save the result of this step to the specified file if not None.
 
@@ -388,10 +402,13 @@ def detect_cells_block(source, parameter=default_cell_detection_parameter, n_thr
         maxima = wrap_step('maxima_detection', dog, md.find_maxima, extra_kwargs={'verbose': parameter.get('verbose')},
                            remove_previous_result=False, **default_step_params)
         # center of maxima
-        if parameter_maxima['h_max']:  # FIXME: check if source or dog
-            centers = md.find_center_of_maxima(source, maxima=maxima, verbose=parameter.get('verbose'))
+        if parameter_maxima['h_max']:
+            centers = md.find_center_of_maxima(source.array, maxima=maxima, verbose=parameter.get('verbose'))
         else:
-            centers = ap.where(maxima, processes=n_threads).array  # WARNING: prange
+            # We treat the eventuality of connected components of size>1 in the mask (maxima>0);
+            # the choice of the structure matrix for connectivity could need discussion.
+            maxima_labels, _ = ndi.label(maxima,structure=np.ones((3,)*3,dtype='bool'))
+            centers = np.vstack((md.label_representatives(maxima_labels))).transpose()
         del maxima
 
         # correct for valid region
@@ -407,8 +424,10 @@ def detect_cells_block(source, parameter=default_cell_detection_parameter, n_thr
 
     # WARNING: sd.detect_shape uses prange
     # cell shape detection  # FIXME: may use centers without assignment
+    # The relative cut, if set, trims each shape on the image before the DoG filter
     shape = wrap_step('shape_detection', dog, sd.detect_shape, remove_previous_result=True, **default_step_params,
-                      args=[centers], extra_kwargs={'verbose': parameter.get('verbose'), 'processes': n_threads})
+                      args=[centers], extra_kwargs={'verbose': parameter.get('verbose'), 'processes': n_threads,
+                                                    'reference': equalized})
     if parameter_shape:
         # size detection
         max_label = centers.shape[0]
